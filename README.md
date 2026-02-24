@@ -1,4 +1,4 @@
-# Sobat HR - HRIS MERN Stack Application
+# PranaHR - HRIS MERN Stack Application
 
 A comprehensive Human Resource Information System built with the MERN stack (MongoDB, Express.js, React.js, Node.js).
 
