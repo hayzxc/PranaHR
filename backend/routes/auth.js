@@ -47,7 +47,7 @@ const generateToken = (user) => {
  */
 const generateRefreshToken = (user) => {
   return jwt.sign(
-    { id: user._id, type: 'refresh' },
+    { id: user._id, type: 'refresh', tokenVersion: user.tokenVersion || 0 },
     process.env.JWT_SECRET,
     { expiresIn: '30d' },
   );
@@ -76,16 +76,17 @@ router.post('/register', registerValidation, catchAsync(async (req, res) => {
   // Create employee profile if registering as employee or hr
   let employee = null;
   if (role !== 'admin') {
-    // Generate employee ID
-    const count = await Employee.countDocuments();
-    const employeeId = `EMP${String(count + 1).padStart(5, '0')}`;
+    // Generate employee ID using atomic counter (race-condition safe)
+    const Counter = require('../models/Counter');
+    const seq = await Counter.getNextSequence('employeeId');
+    const employeeId = `EMP${String(seq).padStart(5, '0')}`;
 
     employee = new Employee({
       userId: user._id,
       employeeId,
       name: name || email.split('@')[0],
       email: email.toLowerCase(),
-      department: department || 'IT',
+      department: department || 'Teknis dan IT',
       position: position || 'Employee',
       salary: salary || 0,
       hireDate: new Date(),
@@ -184,6 +185,11 @@ router.post('/refresh', catchAsync(async (req, res) => {
     throw new UnauthorizedError('User not found or inactive');
   }
 
+  // Validate tokenVersion — reject tokens issued before logout/password change
+  if (decoded.tokenVersion !== (user.tokenVersion || 0)) {
+    throw new UnauthorizedError('Refresh token has been revoked');
+  }
+
   // Generate new tokens
   const newToken = generateToken(user);
   const newRefreshToken = generateRefreshToken(user);
@@ -210,8 +216,9 @@ router.post('/change-password', auth, changePasswordValidation, catchAsync(async
     throw new UnauthorizedError('Current password is incorrect');
   }
 
-  // Update password
+  // Update password and increment tokenVersion to revoke all existing refresh tokens
   user.password = newPassword;
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
   await user.save();
 
   // Generate new token
@@ -224,8 +231,8 @@ router.post('/change-password', auth, changePasswordValidation, catchAsync(async
 // @desc    Logout user (client-side token removal)
 // @access  Private
 router.post('/logout', auth, catchAsync(async (req, res) => {
-  // In a stateless JWT setup, logout is handled client-side
-  // This endpoint can be used for logging or token blacklisting in the future
+  // Increment tokenVersion to invalidate ALL existing refresh tokens for this user
+  await User.findByIdAndUpdate(req.user._id, { $inc: { tokenVersion: 1 } });
   success(res, null, 'Logged out successfully');
 }));
 

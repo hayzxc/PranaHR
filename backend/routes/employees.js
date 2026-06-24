@@ -122,6 +122,11 @@ router.get('/:id', auth, idValidation, catchAsync(async (req, res) => {
     throw new ForbiddenError('You can only view your own profile');
   }
 
+  // Strip salary for non-HR/admin users (defense-in-depth)
+  if (!['hr', 'admin'].includes(req.user.role)) {
+    delete employee.salary;
+  }
+
   success(res, employee);
 }));
 
@@ -146,6 +151,7 @@ router.post('/', auth, authorize('hr', 'admin'), employeeCreateValidation, catch
   }
 
   // Create user account
+  const isDefaultPassword = !password;
   const user = new User({
     email: email.toLowerCase(),
     password: password || 'Password123!', // Default password with requirements
@@ -153,10 +159,15 @@ router.post('/', auth, authorize('hr', 'admin'), employeeCreateValidation, catch
   });
   await user.save();
 
-  // Generate employee ID if not provided
+  if (isDefaultPassword) {
+    console.warn(`⚠️  Employee created with default password for ${email}. Please force a password reset.`);
+  }
+
+  // Generate employee ID if not provided (atomic counter — race-condition safe)
   if (!employeeData.employeeId) {
-    const count = await Employee.countDocuments();
-    employeeData.employeeId = `EMP${String(count + 1).padStart(5, '0')}`;
+    const Counter = require('../models/Counter');
+    const seq = await Counter.getNextSequence('employeeId');
+    employeeData.employeeId = `EMP${String(seq).padStart(5, '0')}`;
   }
 
   // Create employee profile
@@ -201,16 +212,20 @@ router.put('/:id', auth, idValidation, employeeUpdateValidation, catchAsync(asyn
     restrictedFields.forEach(field => delete updateData[field]);
   }
 
-  // Check for duplicate email if updating
+  // Check for duplicate email if updating, and sync to User collection
   if (updateData.email && updateData.email !== employee.email) {
+    const normalizedEmail = updateData.email.toLowerCase();
     const existingUser = await User.findOne({
-      email: updateData.email.toLowerCase(),
+      email: normalizedEmail,
       _id: { $ne: employee.userId },
     });
     if (existingUser) {
       throw new ConflictError('Email already in use');
     }
-    updateData.email = updateData.email.toLowerCase();
+    updateData.email = normalizedEmail;
+
+    // CRITICAL FIX: Sync email change to User collection to prevent login de-sync
+    await User.findByIdAndUpdate(employee.userId, { email: normalizedEmail });
   }
 
   const updatedEmployee = await Employee.findByIdAndUpdate(

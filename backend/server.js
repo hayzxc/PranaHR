@@ -8,6 +8,9 @@ const path = require('path');
 const connectDB = require('./config/db');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
+// Register models that are accessed via mongoose.model() in pre-save hooks
+require('./models/Counter');
+
 // Import routes
 const authRoutes = require('./routes/auth');
 const employeeRoutes = require('./routes/employees');
@@ -88,14 +91,14 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
-// Body parser with limits
+// Body parser with conservative limits (increase per-route for uploads)
 app.use(express.json({
-  limit: '10mb',
+  limit: '1mb',
   verify: (req, res, buf) => {
     req.rawBody = buf;
   },
 }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
@@ -115,8 +118,10 @@ if (process.env.NODE_ENV === 'development') {
   });
 }
 
-// API Routes
-app.use('/api/auth', authLimiter, authRoutes);
+// API Routes — authLimiter applied ONLY to login/register, not /me, /refresh, /verify, /logout
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth', authRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/attendance', attendanceRoutes);

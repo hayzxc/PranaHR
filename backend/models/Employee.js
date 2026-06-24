@@ -73,11 +73,12 @@ const employeeSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-// Generate employee ID before saving
+// Generate employee ID before saving (atomic counter to prevent race conditions)
 employeeSchema.pre('save', async function (next) {
   if (!this.employeeId) {
-    const count = await mongoose.model('Employee').countDocuments();
-    this.employeeId = `EMP${String(count + 1).padStart(5, '0')}`;
+    const Counter = mongoose.model('Counter');
+    const seq = await Counter.getNextSequence('employeeId');
+    this.employeeId = `EMP${String(seq).padStart(5, '0')}`;
   }
   next();
 });
