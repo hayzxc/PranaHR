@@ -36,6 +36,7 @@ export const AuthProvider = ({ children }) => {
             setEmployee(employee);
         } catch (err) {
             localStorage.removeItem('token');
+            localStorage.removeItem('refreshToken');
             localStorage.removeItem('user');
         } finally {
             setLoading(false);
@@ -46,10 +47,11 @@ export const AuthProvider = ({ children }) => {
         try {
             setError(null);
             const response = await authAPI.login({ email, password });
-            // Backend returns { success: true, data: { token, user, employee } }
-            const { token, user, employee } = response.data.data;
+            // Backend returns { success: true, data: { token, refreshToken, user, employee } }
+            const { token, refreshToken, user, employee } = response.data.data;
 
             localStorage.setItem('token', token);
+            if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
             localStorage.setItem('user', JSON.stringify(user));
 
             setUser(user);
@@ -67,10 +69,11 @@ export const AuthProvider = ({ children }) => {
         try {
             setError(null);
             const response = await authAPI.register(data);
-            // Backend returns { success: true, data: { token, user } }
-            const { token, user } = response.data.data;
+            // Backend returns { success: true, data: { token, refreshToken, user } }
+            const { token, refreshToken, user } = response.data.data;
 
             localStorage.setItem('token', token);
+            if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
             localStorage.setItem('user', JSON.stringify(user));
 
             setUser(user);
@@ -83,8 +86,14 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    const logout = () => {
+    const logout = async () => {
+        try {
+            await authAPI.logout();
+        } catch (err) {
+            // Ignore errors
+        }
         localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
         setUser(null);
         setEmployee(null);

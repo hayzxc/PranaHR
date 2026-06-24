@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { announcementAPI } from '../services/api';
 import {
     Megaphone,
@@ -19,6 +20,7 @@ import {
 
 const Announcements = () => {
     const { canManageEmployees } = useAuth();
+    const { showToast } = useToast();
     const [announcements, setAnnouncements] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -72,7 +74,7 @@ const Announcements = () => {
             setFormData({ title: '', content: '', type: 'info', isPinned: false, expiresAt: '' });
             fetchAnnouncements();
         } catch (error) {
-            alert(error.response?.data?.message || 'Failed to save announcement');
+            showToast(error.response?.data?.message || 'Failed to save announcement', 'error');
         }
     };
 
@@ -94,7 +96,7 @@ const Announcements = () => {
             await announcementAPI.delete(id);
             fetchAnnouncements();
         } catch (error) {
-            alert(error.response?.data?.message || 'Failed to delete announcement');
+            showToast(error.response?.data?.message || 'Failed to delete announcement', 'error');
         }
     };
 
@@ -103,7 +105,7 @@ const Announcements = () => {
             await announcementAPI.togglePin(id);
             fetchAnnouncements();
         } catch (error) {
-            alert(error.response?.data?.message || 'Failed to toggle pin');
+            showToast(error.response?.data?.message || 'Failed to toggle pin', 'error');
         }
     };
 

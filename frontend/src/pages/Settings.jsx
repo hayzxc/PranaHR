@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { settingsAPI } from '../services/api';
 import {
     Building2,
@@ -15,6 +16,7 @@ import {
 
 const Settings = () => {
     const { isAdmin } = useAuth();
+    const { showToast } = useToast();
     const [settings, setSettings] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -42,10 +44,10 @@ const Settings = () => {
         try {
             const { data } = await settingsAPI.update(settings);
             setSettings(data.data);
-            alert('Settings saved successfully!');
+            showToast('Settings saved successfully!', 'success');
         } catch (error) {
             console.error('Error saving settings:', error);
-            alert('Error saving settings');
+            showToast('Error saving settings', 'error');
         } finally {
             setSaving(false);
         }

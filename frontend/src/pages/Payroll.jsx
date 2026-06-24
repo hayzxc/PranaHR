@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { payrollAPI, employeeAPI } from '../services/api';
 import {
     DollarSign,
@@ -20,6 +21,7 @@ import {
 
 const Payroll = () => {
     const { canManageEmployees, isAdmin } = useAuth();
+    const { showToast } = useToast();
     const [payrolls, setPayrolls] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -68,12 +70,12 @@ const Payroll = () => {
                 month: filters.month,
                 year: filters.year
             });
-            alert(`${data.message}`);
+            showToast(data.message, 'success');
             setShowGenerateModal(false);
             fetchData();
         } catch (error) {
             console.error('Error generating payroll:', error);
-            alert(error.response?.data?.message || 'Error generating payroll');
+            showToast(error.response?.data?.message || 'Error generating payroll', 'error');
         }
     };
 
@@ -92,7 +94,7 @@ const Payroll = () => {
             fetchData();
         } catch (error) {
             console.error('Error marking as paid:', error);
-            alert(error.response?.data?.message || 'Error');
+            showToast(error.response?.data?.message || 'Error marking as paid', 'error');
         }
     };
 
@@ -143,7 +145,7 @@ const Payroll = () => {
             fetchData();
         } catch (error) {
             console.error('Error updating payroll:', error);
-            alert(error.response?.data?.message || 'Error updating payroll');
+            showToast(error.response?.data?.message || 'Error updating payroll', 'error');
         } finally {
             setEditLoading(false);
         }
@@ -201,7 +203,7 @@ const Payroll = () => {
             document.body.removeChild(a);
         } catch (error) {
             console.error('Error exporting CSV:', error);
-            alert('Error exporting payroll data');
+            showToast('Error exporting payroll data', 'error');
         }
     };
 
@@ -483,7 +485,7 @@ const Payroll = () => {
                                                             link.remove();
                                                         } catch (error) {
                                                             console.error('Download failed', error);
-                                                            alert('Failed to download payslip');
+                                                            showToast('Failed to download payslip', 'error');
                                                         }
                                                     }}
                                                     className="p-2 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors"
@@ -666,7 +668,7 @@ const Payroll = () => {
                                                 link.remove();
                                             } catch (error) {
                                                 console.error('Download failed', error);
-                                                alert('Failed to download payslip');
+                                                showToast('Failed to download payslip', 'error');
                                             }
                                         }}
                                         className="btn btn-secondary flex-1 flex items-center justify-center gap-2">

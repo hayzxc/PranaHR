@@ -97,7 +97,11 @@ export const NotificationProvider = ({ children }) => {
 
         fetchUnreadCount();
 
-        const interval = setInterval(fetchUnreadCount, 30000);
+        const interval = setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                fetchUnreadCount();
+            }
+        }, 30000);
         return () => clearInterval(interval);
     }, [isAuthenticated, fetchUnreadCount]);
 

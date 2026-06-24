@@ -1,175 +1,154 @@
 /**
  * Production Database Setup Script
- * Run this script to set up all indexes and validate the database
- * 
- * Usage: node scripts/db-setup.js
+ *
+ * Creates application indexes and validates the production database basics.
+ * Usage: npm run db:setup
  */
 
 require('dotenv').config();
 const mongoose = require('mongoose');
 
-// Import all models to register them
-const User = require('../models/User');
-const Employee = require('../models/Employee');
-const Attendance = require('../models/Attendance');
-const Leave = require('../models/Leave');
-const Payroll = require('../models/Payroll');
-const Job = require('../models/Job');
-const Candidate = require('../models/Candidate');
-const Onboarding = require('../models/Onboarding');
-const Goal = require('../models/Goal');
-const PerformanceReview = require('../models/PerformanceReview');
-const Document = require('../models/Document');
-const Settings = require('../models/Settings');
+const models = [
+  { name: 'Announcement', model: require('../models/Announcement') },
+  { name: 'Attendance', model: require('../models/Attendance') },
+  { name: 'Candidate', model: require('../models/Candidate') },
+  { name: 'Document', model: require('../models/Document') },
+  { name: 'Employee', model: require('../models/Employee') },
+  { name: 'Goal', model: require('../models/Goal') },
+  { name: 'Job', model: require('../models/Job') },
+  { name: 'KPI', model: require('../models/KPI') },
+  { name: 'Leave', model: require('../models/Leave') },
+  { name: 'Notification', model: require('../models/Notification') },
+  { name: 'OKR', model: require('../models/OKR') },
+  { name: 'Onboarding', model: require('../models/Onboarding') },
+  { name: 'Payroll', model: require('../models/Payroll') },
+  { name: 'PerformanceReview', model: require('../models/PerformanceReview') },
+  { name: 'Settings', model: require('../models/Settings') },
+  { name: 'Task', model: require('../models/Task') },
+  { name: 'User', model: require('../models/User') },
+];
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sobat-hr';
+const MONGODB_URI = process.env.MONGODB_URI;
+const isProduction = process.env.NODE_ENV === 'production';
 
-// Color codes for console output
 const colors = {
-    reset: '\x1b[0m',
-    green: '\x1b[32m',
-    yellow: '\x1b[33m',
-    red: '\x1b[31m',
-    cyan: '\x1b[36m',
+  reset: '\x1b[0m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
+  cyan: '\x1b[36m',
 };
 
 const log = {
-    info: (msg) => console.log(`${colors.cyan}[INFO]${colors.reset} ${msg}`),
-    success: (msg) => console.log(`${colors.green}[SUCCESS]${colors.reset} ${msg}`),
-    warn: (msg) => console.log(`${colors.yellow}[WARN]${colors.reset} ${msg}`),
-    error: (msg) => console.log(`${colors.red}[ERROR]${colors.reset} ${msg}`),
+  info: (message) => console.log(`${colors.cyan}[INFO]${colors.reset} ${message}`),
+  success: (message) => console.log(`${colors.green}[OK]${colors.reset} ${message}`),
+  warn: (message) => console.log(`${colors.yellow}[WARN]${colors.reset} ${message}`),
+  error: (message) => console.log(`${colors.red}[ERROR]${colors.reset} ${message}`),
 };
 
+const maskMongoUri = (uri) => uri.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@');
+
+function validateEnvironment() {
+  if (!MONGODB_URI) {
+    throw new Error('MONGODB_URI is required. Set it before running database setup.');
+  }
+
+  if (isProduction && /localhost|127\.0\.0\.1/.test(MONGODB_URI) && process.env.ALLOW_LOCAL_DB_IN_PRODUCTION !== 'true') {
+    throw new Error('Production setup is pointing at a local MongoDB URI. Set ALLOW_LOCAL_DB_IN_PRODUCTION=true only if this is intentional.');
+  }
+
+  if (isProduction && !process.env.JWT_SECRET) {
+    log.warn('JWT_SECRET is not set. Database setup can continue, but production API startup should not.');
+  }
+}
+
 async function connectDB() {
-    log.info('Connecting to MongoDB...');
-    await mongoose.connect(MONGODB_URI);
-    log.success(`Connected to: ${MONGODB_URI.replace(/\/\/.*@/, '//*****@')}`);
+  log.info('Connecting to MongoDB...');
+  mongoose.set('autoIndex', false);
+  mongoose.set('autoCreate', false);
+
+  await mongoose.connect(MONGODB_URI, {
+    maxPoolSize: Number(process.env.MONGODB_MAX_POOL_SIZE || 20),
+    minPoolSize: Number(process.env.MONGODB_MIN_POOL_SIZE || 0),
+    serverSelectionTimeoutMS: Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS || 10000),
+    socketTimeoutMS: Number(process.env.MONGODB_SOCKET_TIMEOUT_MS || 45000),
+  });
+
+  await mongoose.connection.db.admin().ping();
+  log.success(`Connected to ${maskMongoUri(MONGODB_URI)}`);
 }
 
 async function createIndexes() {
-    log.info('Creating indexes...');
+  log.info('Creating indexes...');
 
-    const models = [
-        { name: 'User', model: User },
-        { name: 'Employee', model: Employee },
-        { name: 'Attendance', model: Attendance },
-        { name: 'Leave', model: Leave },
-        { name: 'Payroll', model: Payroll },
-        { name: 'Job', model: Job },
-        { name: 'Candidate', model: Candidate },
-        { name: 'Onboarding', model: Onboarding },
-        { name: 'Goal', model: Goal },
-        { name: 'PerformanceReview', model: PerformanceReview },
-        { name: 'Document', model: Document },
-        { name: 'Settings', model: Settings },
-    ];
-
-    for (const { name, model } of models) {
-        try {
-            await model.createIndexes();
-            log.success(`  ✓ ${name} indexes created`);
-        } catch (error) {
-            log.error(`  ✗ ${name}: ${error.message}`);
-        }
+  let failures = 0;
+  for (const { name, model } of models) {
+    try {
+      await model.createIndexes();
+      log.success(`${name} indexes are ready`);
+    } catch (error) {
+      failures += 1;
+      log.error(`${name} index setup failed: ${error.message}`);
     }
-}
+  }
 
-async function getCollectionStats() {
-    log.info('Collection statistics:');
-
-    const collections = [
-        'users', 'employees', 'attendances', 'leaves', 'payrolls',
-        'jobs', 'candidates', 'onboardings', 'goals', 'performancereviews', 'documents', 'settings'
-    ];
-
-    console.log('\n  Collection            | Documents | Indexes | Size');
-    console.log('  ----------------------|-----------|---------|----------');
-
-    for (const collName of collections) {
-        try {
-            const collection = mongoose.connection.db.collection(collName);
-            const stats = await collection.stats();
-            const indexes = await collection.indexes();
-
-            const docCount = stats.count.toString().padStart(9);
-            const indexCount = indexes.length.toString().padStart(7);
-            const size = formatBytes(stats.size).padStart(10);
-
-            console.log(`  ${collName.padEnd(22)}| ${docCount} | ${indexCount} | ${size}`);
-        } catch (error) {
-            console.log(`  ${collName.padEnd(22)}| (not created yet)`);
-        }
-    }
-    console.log('');
-}
-
-function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  if (failures > 0) {
+    throw new Error(`${failures} model(s) failed index setup`);
+  }
 }
 
 async function validateSettings() {
-    log.info('Validating settings...');
-
-    try {
-        const settings = await Settings.getSettings();
-        log.success(`  ✓ Settings document exists (Company: ${settings.companyName})`);
-    } catch (error) {
-        log.error(`  ✗ Settings: ${error.message}`);
-    }
+  const Settings = mongoose.model('Settings');
+  const settings = await Settings.getSettings();
+  log.success(`Settings document is ready for ${settings.companyName}`);
 }
 
-async function listIndexes() {
-    log.info('Current indexes by collection:\n');
+async function getCollectionStats() {
+  log.info('Collection statistics:');
+  console.log('');
+  console.log('  Collection          Documents  Indexes');
+  console.log('  ------------------  ---------  -------');
 
-    const collections = await mongoose.connection.db.listCollections().toArray();
+  for (const { model } of models) {
+    const collectionName = model.collection.name;
+    const collection = mongoose.connection.db.collection(collectionName);
 
-    for (const collInfo of collections) {
-        const collection = mongoose.connection.db.collection(collInfo.name);
-        const indexes = await collection.indexes();
+    try {
+      const [documents, indexes] = await Promise.all([
+        collection.countDocuments(),
+        collection.indexes(),
+      ]);
 
-        console.log(`  ${colors.cyan}${collInfo.name}${colors.reset}`);
-        for (const idx of indexes) {
-            const keys = Object.keys(idx.key).join(', ');
-            const unique = idx.unique ? ' (unique)' : '';
-            console.log(`    - ${idx.name}: [${keys}]${unique}`);
-        }
-        console.log('');
+      console.log(`  ${collectionName.padEnd(18)}  ${String(documents).padStart(9)}  ${String(indexes.length).padStart(7)}`);
+    } catch {
+      console.log(`  ${collectionName.padEnd(18)}  not created`);
     }
+  }
+
+  console.log('');
 }
 
 async function main() {
-    console.log('\n╔════════════════════════════════════════╗');
-    console.log('║   Sobat HR - Database Setup Script     ║');
-    console.log('╚════════════════════════════════════════╝\n');
+  console.log('');
+  console.log('Sobat HR - Production Database Setup');
+  console.log('====================================');
+  console.log('');
 
-    try {
-        await connectDB();
-        console.log('');
+  try {
+    validateEnvironment();
+    await connectDB();
+    await createIndexes();
+    await validateSettings();
+    await getCollectionStats();
 
-        await createIndexes();
-        console.log('');
-
-        await validateSettings();
-        console.log('');
-
-        await getCollectionStats();
-
-        // Uncomment to see all indexes
-        // await listIndexes();
-
-        log.success('Database setup completed successfully!\n');
-
-    } catch (error) {
-        log.error(`Setup failed: ${error.message}`);
-        process.exit(1);
-    } finally {
-        await mongoose.disconnect();
-        log.info('Disconnected from MongoDB');
-    }
+    log.success('Database setup completed successfully.');
+  } catch (error) {
+    log.error(error.message);
+    process.exitCode = 1;
+  } finally {
+    await mongoose.disconnect();
+    log.info('Disconnected from MongoDB');
+  }
 }
 
 main();

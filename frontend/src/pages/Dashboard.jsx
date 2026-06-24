@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import DashboardGrid from '../components/DashboardGrid';
 import { employeeAPI, leaveAPI, attendanceAPI, announcementAPI } from '../services/api';
 import {
@@ -102,6 +103,7 @@ const SkeletonProfile = () => (
 
 const Dashboard = () => {
     const { user, employee, canManageEmployees } = useAuth();
+    const { showToast } = useToast();
     const [stats, setStats] = useState(null);
     const [leaveStats, setLeaveStats] = useState(null);
     const [todayAttendance, setTodayAttendance] = useState(null);
@@ -119,22 +121,20 @@ const Dashboard = () => {
 
     const fetchData = async () => {
         try {
-            const [attendanceRes] = await Promise.all([
-                attendanceAPI.getToday(),
-                canManageEmployees ? employeeAPI.getStats().catch(() => null) : null,
-                canManageEmployees ? leaveAPI.getStats().catch(() => null) : null,
-            ]);
+            const promises = [attendanceAPI.getToday()];
+            if (canManageEmployees) {
+                promises.push(
+                    employeeAPI.getStats().catch(() => null),
+                    leaveAPI.getStats().catch(() => null)
+                );
+            }
 
-            setTodayAttendance(attendanceRes.data.data);
+            const results = await Promise.all(promises);
+            setTodayAttendance(results[0].data.data);
 
             if (canManageEmployees) {
-                const [_, empStats, lvStats] = await Promise.all([
-                    Promise.resolve(),
-                    employeeAPI.getStats(),
-                    leaveAPI.getStats(),
-                ]);
-                setStats(empStats.data.data);
-                setLeaveStats(lvStats.data.data);
+                if (results[1]) setStats(results[1].data.data);
+                if (results[2]) setLeaveStats(results[2].data.data);
             }
 
             // Fetch announcements for all users
@@ -157,7 +157,7 @@ const Dashboard = () => {
             await attendanceAPI.clockIn({});
             fetchData();
         } catch (error) {
-            alert(error.response?.data?.message || 'Failed to clock in');
+            showToast(error.response?.data?.message || 'Failed to clock in', 'error');
         }
         setClockingIn(false);
     };
@@ -168,7 +168,7 @@ const Dashboard = () => {
             await attendanceAPI.clockOut({});
             fetchData();
         } catch (error) {
-            alert(error.response?.data?.message || 'Failed to clock out');
+            showToast(error.response?.data?.message || 'Failed to clock out', 'error');
         }
         setClockingIn(false);
     };

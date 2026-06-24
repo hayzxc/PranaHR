@@ -26,9 +26,12 @@ api.interceptors.response.use(
     (response) => response,
     (error) => {
         if (error.response?.status === 401) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            window.location.href = '/login';
+            const isAuthCheck = error.config?.url?.includes('/auth/me');
+            if (!isAuthCheck) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+            }
         }
         return Promise.reject(error);
     }
@@ -39,6 +42,7 @@ export const authAPI = {
     login: (data) => api.post('/auth/login', data),
     register: (data) => api.post('/auth/register', data),
     getMe: () => api.get('/auth/me'),
+    logout: () => api.post('/auth/logout'),
 };
 
 // Employee APIs

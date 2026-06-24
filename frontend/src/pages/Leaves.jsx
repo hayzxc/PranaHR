@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { leaveAPI } from '../services/api';
 import {
     Calendar,
@@ -12,6 +13,7 @@ import {
 
 const Leaves = () => {
     const { canManageEmployees } = useAuth();
+    const { showToast } = useToast();
     const [leaves, setLeaves] = useState([]);
     const [pendingLeaves, setPendingLeaves] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -27,10 +29,13 @@ const Leaves = () => {
     const leaveTypes = ['annual', 'sick', 'personal', 'maternity', 'paternity', 'unpaid', 'other'];
 
     useEffect(() => {
-        fetchLeaves();
-        if (canManageEmployees) {
-            fetchPendingLeaves();
-        }
+        const timeout = setTimeout(() => {
+            fetchLeaves();
+            if (canManageEmployees) {
+                fetchPendingLeaves();
+            }
+        }, 300);
+        return () => clearTimeout(timeout);
     }, [statusFilter]);
 
     const fetchLeaves = async () => {
@@ -64,7 +69,7 @@ const Leaves = () => {
             setFormData({ type: 'annual', startDate: '', endDate: '', reason: '' });
             fetchLeaves();
         } catch (error) {
-            alert(error.response?.data?.message || 'Error submitting leave request');
+            showToast(error.response?.data?.message || 'Error submitting leave request', 'error');
         }
     };
 
@@ -74,7 +79,7 @@ const Leaves = () => {
             fetchLeaves();
             fetchPendingLeaves();
         } catch (error) {
-            alert(error.response?.data?.message || 'Error approving leave');
+            showToast(error.response?.data?.message || 'Error approving leave', 'error');
         }
     };
 
@@ -85,7 +90,7 @@ const Leaves = () => {
             fetchLeaves();
             fetchPendingLeaves();
         } catch (error) {
-            alert(error.response?.data?.message || 'Error rejecting leave');
+            showToast(error.response?.data?.message || 'Error rejecting leave', 'error');
         }
     };
 

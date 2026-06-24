@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { okrAPI, employeeAPI, performanceAPI } from '../services/api';
 import {
     Crosshair,
@@ -27,6 +28,7 @@ import {
 
 const OKR = () => {
     const { user, employee, canManageEmployees } = useAuth();
+    const { showToast } = useToast();
     const [activeTab, setActiveTab] = useState('goals');
     const [okrs, setOkrs] = useState([]);
     const [kpis, setKpis] = useState([]);
@@ -130,7 +132,7 @@ const OKR = () => {
             fetchData();
         } catch (error) {
             console.error('Error creating OKR:', error);
-            alert(error.response?.data?.message || 'Error creating OKR');
+            showToast(error.response?.data?.message || 'Error creating OKR', 'error');
         }
     };
 
@@ -198,7 +200,7 @@ const OKR = () => {
             fetchData();
         } catch (error) {
             console.error('Error creating KPI:', error);
-            alert(error.response?.data?.message || 'Error creating KPI');
+            showToast(error.response?.data?.message || 'Error creating KPI', 'error');
         }
     };
 
@@ -215,7 +217,7 @@ const OKR = () => {
             fetchData();
         } catch (error) {
             console.error('Error adding entry:', error);
-            alert(error.response?.data?.message || 'Error adding entry');
+            showToast(error.response?.data?.message || 'Error adding entry', 'error');
         }
     };
 
@@ -240,7 +242,7 @@ const OKR = () => {
             fetchData();
         } catch (error) {
             console.error('Error creating goal:', error);
-            alert('Error creating goal');
+            showToast('Error creating goal', 'error');
         }
     };
 

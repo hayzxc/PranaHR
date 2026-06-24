@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { attendanceAPI } from '../services/api';
 import {
     Clock,
@@ -13,11 +14,13 @@ import {
 
 const Attendance = () => {
     const { employee, canManageEmployees } = useAuth();
+    const { showToast } = useToast();
     const [attendance, setAttendance] = useState([]);
     const [todayAttendance, setTodayAttendance] = useState(null);
     const [summary, setSummary] = useState(null);
     const [loading, setLoading] = useState(true);
     const [clockingIn, setClockingIn] = useState(false);
+    const [currentTime, setCurrentTime] = useState(new Date());
     const [dateRange, setDateRange] = useState({
         startDate: new Date(new Date().setDate(1)).toISOString().split('T')[0],
         endDate: new Date().toISOString().split('T')[0]
@@ -26,6 +29,11 @@ const Attendance = () => {
     useEffect(() => {
         fetchData();
     }, [dateRange]);
+
+    useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     const fetchData = async () => {
         try {
@@ -61,7 +69,7 @@ const Attendance = () => {
             await attendanceAPI.clockIn({});
             fetchData();
         } catch (error) {
-            alert(error.response?.data?.message || 'Failed to clock in');
+            showToast(error.response?.data?.message || 'Failed to clock in', 'error');
         }
         setClockingIn(false);
     };
@@ -72,7 +80,7 @@ const Attendance = () => {
             await attendanceAPI.clockOut({});
             fetchData();
         } catch (error) {
-            alert(error.response?.data?.message || 'Failed to clock out');
+            showToast(error.response?.data?.message || 'Failed to clock out', 'error');
         }
         setClockingIn(false);
     };
@@ -150,7 +158,7 @@ const Attendance = () => {
 
                     <div className="flex flex-col items-center gap-4">
                         <div className="text-6xl font-bold">
-                            {new Date().toLocaleTimeString('en-US', {
+                            {currentTime.toLocaleTimeString('en-US', {
                                 hour: '2-digit',
                                 minute: '2-digit'
                             })}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { taskAPI, employeeAPI } from '../services/api';
 import {
     ClipboardList,
@@ -19,6 +20,7 @@ import {
 
 const Tasks = () => {
     const { canManageEmployees, user } = useAuth();
+    const { showToast } = useToast();
     const [tasks, setTasks] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [stats, setStats] = useState({ pending: 0, in_progress: 0, completed: 0, overdue: 0 });
@@ -109,7 +111,7 @@ const Tasks = () => {
             closeModal();
             fetchData();
         } catch (error) {
-            alert(error.response?.data?.message || 'Failed to save task');
+            showToast(error.response?.data?.message || 'Failed to save task', 'error');
         }
     };
 
@@ -118,7 +120,7 @@ const Tasks = () => {
             await taskAPI.updateStatus(taskId, { status: newStatus });
             fetchData();
         } catch (error) {
-            alert(error.response?.data?.message || 'Failed to update status');
+            showToast(error.response?.data?.message || 'Failed to update status', 'error');
         }
     };
 
@@ -128,7 +130,7 @@ const Tasks = () => {
             await taskAPI.delete(id);
             fetchData();
         } catch (error) {
-            alert(error.response?.data?.message || 'Failed to delete task');
+            showToast(error.response?.data?.message || 'Failed to delete task', 'error');
         }
     };
 

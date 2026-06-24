@@ -90,8 +90,12 @@ const Login = () => {
             </div>
 
             {/* Right Panel - Login Form */}
-            <div className="flex-1 flex items-center justify-center p-8 bg-blue-50">
-                <div className="w-full max-w-md">
+            <div className="flex-1 flex items-center justify-center p-8 bg-surface-50 relative overflow-hidden">
+                {/* Decorative blobs */}
+                <div className="absolute top-[-10%] right-[-5%] w-96 h-96 bg-primary-400/15 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute bottom-[-10%] left-[-5%] w-96 h-96 bg-accent-400/15 rounded-full blur-3xl pointer-events-none" />
+                
+                <div className="w-full max-w-md relative z-10 card-glass bg-white/60 p-8 shadow-soft-lg">
                     {/* Mobile Header */}
                     <div className="lg:hidden text-center mb-8">
                         <div className="inline-flex items-center gap-3">

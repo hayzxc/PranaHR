@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { documentsAPI, employeeAPI } from '../services/api';
 import {
     FileText,
@@ -25,6 +26,7 @@ import {
 
 const Documents = () => {
     const { canManageEmployees, isAdmin } = useAuth();
+    const { showToast } = useToast();
     const [documents, setDocuments] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -88,7 +90,7 @@ const Documents = () => {
     const handleUpload = async (e) => {
         e.preventDefault();
         if (!uploadForm.file || !uploadForm.employeeId || !uploadForm.title) {
-            alert('Please fill in all required fields');
+            showToast('Please fill in all required fields', 'warning');
             return;
         }
 
@@ -117,7 +119,7 @@ const Documents = () => {
             fetchData();
         } catch (error) {
             console.error('Upload error:', error);
-            alert(error.response?.data?.message || 'Error uploading document');
+            showToast(error.response?.data?.message || 'Error uploading document', 'error');
         } finally {
             setUploading(false);
         }
@@ -137,7 +139,7 @@ const Documents = () => {
             document.body.removeChild(a);
         } catch (error) {
             console.error('Download error:', error);
-            alert('Error downloading document');
+            showToast('Error downloading document', 'error');
         }
     };
 

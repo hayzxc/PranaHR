@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { recruitingAPI, employeeAPI } from '../services/api';
 import {
     UserPlus,
@@ -25,6 +26,7 @@ import {
 
 const Recruiting = () => {
     const { canManageEmployees, isAdmin } = useAuth();
+    const { showToast } = useToast();
     const [activeTab, setActiveTab] = useState('jobs');
     const [jobs, setJobs] = useState([]);
     const [candidates, setCandidates] = useState([]);
@@ -83,7 +85,7 @@ const Recruiting = () => {
             fetchData();
         } catch (error) {
             console.error('Error creating job:', error);
-            alert('Error creating job');
+            showToast('Error creating job', 'error');
         }
     };
 

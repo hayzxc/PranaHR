@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { onboardingAPI, employeeAPI } from '../services/api';
 import {
     ClipboardList,
@@ -19,6 +20,7 @@ import {
 
 const Onboarding = () => {
     const { canManageEmployees } = useAuth();
+    const { showToast } = useToast();
     const [onboardings, setOnboardings] = useState([]);
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -66,7 +68,7 @@ const Onboarding = () => {
             fetchData();
         } catch (error) {
             console.error('Error creating onboarding:', error);
-            alert(error.response?.data?.message || 'Error creating onboarding');
+            showToast(error.response?.data?.message || 'Error creating onboarding', 'error');
         }
     };
 
@@ -97,7 +99,7 @@ const Onboarding = () => {
             fetchData();
         } catch (error) {
             console.error('Error deleting onboarding:', error);
-            alert(error.response?.data?.message || 'Error deleting onboarding');
+            showToast(error.response?.data?.message || 'Error deleting onboarding', 'error');
         }
     };
 

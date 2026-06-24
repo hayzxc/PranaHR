@@ -1,251 +1,246 @@
 /**
  * Database Health Check Script
- * Run this script to check database health and identify issues
- * 
- * Usage: node scripts/db-health.js
+ *
+ * Checks connectivity, indexes, duplicate keys, and common orphaned records.
+ * Usage: npm run db:health
  */
 
 require('dotenv').config();
 const mongoose = require('mongoose');
 
-const User = require('../models/User');
-const Employee = require('../models/Employee');
-const Attendance = require('../models/Attendance');
-const Leave = require('../models/Leave');
-const Payroll = require('../models/Payroll');
+const models = [
+  { name: 'Announcement', model: require('../models/Announcement') },
+  { name: 'Attendance', model: require('../models/Attendance') },
+  { name: 'Candidate', model: require('../models/Candidate') },
+  { name: 'Document', model: require('../models/Document') },
+  { name: 'Employee', model: require('../models/Employee') },
+  { name: 'Goal', model: require('../models/Goal') },
+  { name: 'Job', model: require('../models/Job') },
+  { name: 'KPI', model: require('../models/KPI') },
+  { name: 'Leave', model: require('../models/Leave') },
+  { name: 'Notification', model: require('../models/Notification') },
+  { name: 'OKR', model: require('../models/OKR') },
+  { name: 'Onboarding', model: require('../models/Onboarding') },
+  { name: 'Payroll', model: require('../models/Payroll') },
+  { name: 'PerformanceReview', model: require('../models/PerformanceReview') },
+  { name: 'Settings', model: require('../models/Settings') },
+  { name: 'Task', model: require('../models/Task') },
+  { name: 'User', model: require('../models/User') },
+];
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sobat-hr';
+const MONGODB_URI = process.env.MONGODB_URI;
 
 const colors = {
-    reset: '\x1b[0m',
-    green: '\x1b[32m',
-    yellow: '\x1b[33m',
-    red: '\x1b[31m',
-    cyan: '\x1b[36m',
+  reset: '\x1b[0m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  red: '\x1b[31m',
+  cyan: '\x1b[36m',
 };
 
+const ok = (message) => console.log(`  ${colors.green}[OK]${colors.reset} ${message}`);
+const warn = (message) => console.log(`  ${colors.yellow}[WARN]${colors.reset} ${message}`);
+const fail = (message) => console.log(`  ${colors.red}[FAIL]${colors.reset} ${message}`);
+const section = (message) => console.log(`\n${colors.cyan}${message}${colors.reset}\n`);
+
 async function checkOrphanedRecords() {
-    console.log('\n📋 Checking for orphaned records...\n');
+  section('Checking referenced records');
+  let issues = 0;
 
-    let issues = 0;
+  const checks = [
+    {
+      label: 'employees without linked users',
+      collection: mongoose.model('Employee'),
+      localField: 'userId',
+      foreignCollection: 'users',
+    },
+    {
+      label: 'attendance records without employees',
+      collection: mongoose.model('Attendance'),
+      localField: 'employeeId',
+      foreignCollection: 'employees',
+    },
+    {
+      label: 'leave records without employees',
+      collection: mongoose.model('Leave'),
+      localField: 'employeeId',
+      foreignCollection: 'employees',
+    },
+    {
+      label: 'payroll records without employees',
+      collection: mongoose.model('Payroll'),
+      localField: 'employee',
+      foreignCollection: 'employees',
+    },
+  ];
 
-    // Check employees without users
-    const employeesWithoutUsers = await Employee.aggregate([
-        {
-            $lookup: {
-                from: 'users',
-                localField: 'userId',
-                foreignField: '_id',
-                as: 'user'
-            }
+  for (const check of checks) {
+    const result = await check.collection.aggregate([
+      {
+        $lookup: {
+          from: check.foreignCollection,
+          localField: check.localField,
+          foreignField: '_id',
+          as: 'linkedRecord',
         },
-        { $match: { user: { $size: 0 } } },
-        { $count: 'count' }
+      },
+      { $match: { linkedRecord: { $size: 0 } } },
+      { $count: 'count' },
     ]);
 
-    const orphanedEmployees = employeesWithoutUsers[0]?.count || 0;
-    if (orphanedEmployees > 0) {
-        console.log(`  ${colors.red}✗${colors.reset} ${orphanedEmployees} employees without linked users`);
-        issues++;
+    const count = result[0]?.count || 0;
+    if (count > 0) {
+      fail(`${count} ${check.label}`);
+      issues += 1;
     } else {
-        console.log(`  ${colors.green}✓${colors.reset} All employees have linked users`);
+      ok(`No ${check.label}`);
     }
+  }
 
-    // Check attendance records without employees
-    const attendanceWithoutEmployees = await Attendance.aggregate([
-        {
-            $lookup: {
-                from: 'employees',
-                localField: 'employeeId',
-                foreignField: '_id',
-                as: 'employee'
-            }
-        },
-        { $match: { employee: { $size: 0 } } },
-        { $count: 'count' }
-    ]);
-
-    const orphanedAttendance = attendanceWithoutEmployees[0]?.count || 0;
-    if (orphanedAttendance > 0) {
-        console.log(`  ${colors.red}✗${colors.reset} ${orphanedAttendance} attendance records without employees`);
-        issues++;
-    } else {
-        console.log(`  ${colors.green}✓${colors.reset} All attendance records have valid employees`);
-    }
-
-    // Check leaves without employees
-    const leavesWithoutEmployees = await Leave.aggregate([
-        {
-            $lookup: {
-                from: 'employees',
-                localField: 'employeeId',
-                foreignField: '_id',
-                as: 'employee'
-            }
-        },
-        { $match: { employee: { $size: 0 } } },
-        { $count: 'count' }
-    ]);
-
-    const orphanedLeaves = leavesWithoutEmployees[0]?.count || 0;
-    if (orphanedLeaves > 0) {
-        console.log(`  ${colors.red}✗${colors.reset} ${orphanedLeaves} leave records without employees`);
-        issues++;
-    } else {
-        console.log(`  ${colors.green}✓${colors.reset} All leave records have valid employees`);
-    }
-
-    return issues;
+  return issues;
 }
 
-async function checkDataIntegrity() {
-    console.log('\n📋 Checking data integrity...\n');
+async function checkDuplicateKeys() {
+  section('Checking duplicate unique keys');
+  let issues = 0;
 
-    let issues = 0;
+  const checks = [
+    { label: 'user emails', model: mongoose.model('User'), field: 'email' },
+    { label: 'employee emails', model: mongoose.model('Employee'), field: 'email' },
+    { label: 'employee IDs', model: mongoose.model('Employee'), field: 'employeeId' },
+  ];
 
-    // Check for duplicate emails in users
-    const duplicateEmails = await User.aggregate([
-        { $group: { _id: '$email', count: { $sum: 1 } } },
-        { $match: { count: { $gt: 1 } } }
+  for (const check of checks) {
+    const duplicates = await check.model.aggregate([
+      { $match: { [check.field]: { $exists: true, $ne: null } } },
+      { $group: { _id: `$${check.field}`, count: { $sum: 1 } } },
+      { $match: { count: { $gt: 1 } } },
+      { $limit: 5 },
     ]);
 
-    if (duplicateEmails.length > 0) {
-        console.log(`  ${colors.red}✗${colors.reset} Found ${duplicateEmails.length} duplicate user emails`);
-        issues++;
+    if (duplicates.length > 0) {
+      fail(`Duplicate ${check.label}: ${duplicates.map((item) => item._id).join(', ')}`);
+      issues += 1;
     } else {
-        console.log(`  ${colors.green}✓${colors.reset} No duplicate user emails`);
+      ok(`No duplicate ${check.label}`);
     }
+  }
 
-    // Check for inactive users with active employees
-    const inactiveUsersWithActiveEmployees = await User.aggregate([
-        { $match: { isActive: false } },
-        {
-            $lookup: {
-                from: 'employees',
-                localField: '_id',
-                foreignField: 'userId',
-                as: 'employee'
-            }
-        },
-        { $unwind: '$employee' },
-        { $match: { 'employee.status': 'active' } },
-        { $count: 'count' }
-    ]);
-
-    const mismatchedStatus = inactiveUsersWithActiveEmployees[0]?.count || 0;
-    if (mismatchedStatus > 0) {
-        console.log(`  ${colors.yellow}⚠${colors.reset} ${mismatchedStatus} inactive users with active employee profiles`);
-        issues++;
-    } else {
-        console.log(`  ${colors.green}✓${colors.reset} User/Employee status consistent`);
-    }
-
-    // Check payroll calculations
-    const incorrectPayrolls = await Payroll.aggregate([
-        {
-            $addFields: {
-                calculatedNet: {
-                    $subtract: [
-                        {
-                            $add: [
-                                '$basicSalary',
-                                { $ifNull: ['$earnings.overtime', 0] },
-                                { $ifNull: ['$earnings.bonus', 0] },
-                                { $ifNull: ['$earnings.allowances', 0] },
-                                { $ifNull: ['$earnings.transport', 0] },
-                                { $ifNull: ['$earnings.meal', 0] },
-                                { $ifNull: ['$earnings.other', 0] }
-                            ]
-                        },
-                        {
-                            $add: [
-                                { $ifNull: ['$deductions.tax', 0] },
-                                { $ifNull: ['$deductions.bpjs', 0] },
-                                { $ifNull: ['$deductions.pension', 0] },
-                                { $ifNull: ['$deductions.loan', 0] },
-                                { $ifNull: ['$deductions.absence', 0] },
-                                { $ifNull: ['$deductions.other', 0] }
-                            ]
-                        }
-                    ]
-                }
-            }
-        },
-        {
-            $match: {
-                $expr: { $ne: ['$netPay', '$calculatedNet'] }
-            }
-        },
-        { $count: 'count' }
-    ]);
-
-    const badPayrolls = incorrectPayrolls[0]?.count || 0;
-    if (badPayrolls > 0) {
-        console.log(`  ${colors.yellow}⚠${colors.reset} ${badPayrolls} payroll records with calculation mismatches`);
-        issues++;
-    } else {
-        console.log(`  ${colors.green}✓${colors.reset} All payroll calculations are correct`);
-    }
-
-    return issues;
+  return issues;
 }
 
-async function getIndexUsage() {
-    console.log('\n📋 Index usage analysis...\n');
+async function checkIndexes() {
+  section('Checking model indexes');
+  let issues = 0;
 
-    const collections = ['users', 'employees', 'attendances', 'leaves', 'payrolls'];
+  for (const { name, model } of models) {
+    const diff = await model.diffIndexes();
+    const missing = diff.toCreate.length;
+    const extra = diff.toDrop.length;
 
-    for (const collName of collections) {
-        try {
-            const stats = await mongoose.connection.db.command({
-                aggregate: collName,
-                pipeline: [{ $indexStats: {} }],
-                cursor: {}
-            });
-
-            console.log(`  ${colors.cyan}${collName}${colors.reset}`);
-
-            for (const idx of stats.cursor.firstBatch) {
-                const ops = idx.accesses.ops;
-                const status = ops === 0 ? colors.yellow + '⚠' : colors.green + '✓';
-                console.log(`    ${status}${colors.reset} ${idx.name}: ${ops} operations`);
-            }
-            console.log('');
-        } catch (error) {
-            console.log(`  ${collName}: Unable to get stats`);
-        }
+    if (missing > 0) {
+      fail(`${name} is missing ${missing} index(es). Run npm run db:setup.`);
+      issues += 1;
+    } else if (extra > 0) {
+      warn(`${name} has ${extra} extra index(es). Review before dropping anything in production.`);
+    } else {
+      ok(`${name} indexes match the schema`);
     }
+  }
+
+  return issues;
+}
+
+async function checkPayrollCalculations() {
+  section('Checking payroll calculations');
+
+  const result = await mongoose.model('Payroll').aggregate([
+    {
+      $addFields: {
+        calculatedNet: {
+          $subtract: [
+            {
+              $add: [
+                '$basicSalary',
+                { $ifNull: ['$earnings.overtime', 0] },
+                { $ifNull: ['$earnings.bonus', 0] },
+                { $ifNull: ['$earnings.allowances', 0] },
+                { $ifNull: ['$earnings.transport', 0] },
+                { $ifNull: ['$earnings.meal', 0] },
+                { $ifNull: ['$earnings.other', 0] },
+              ],
+            },
+            {
+              $add: [
+                { $ifNull: ['$deductions.tax', 0] },
+                { $ifNull: ['$deductions.bpjs', 0] },
+                { $ifNull: ['$deductions.pension', 0] },
+                { $ifNull: ['$deductions.loan', 0] },
+                { $ifNull: ['$deductions.absence', 0] },
+                { $ifNull: ['$deductions.other', 0] },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    { $match: { $expr: { $ne: ['$netPay', '$calculatedNet'] } } },
+    { $count: 'count' },
+  ]);
+
+  const count = result[0]?.count || 0;
+  if (count > 0) {
+    fail(`${count} payroll records have calculation mismatches`);
+    return 1;
+  }
+
+  ok('Payroll calculations are consistent');
+  return 0;
 }
 
 async function main() {
-    console.log('\n╔════════════════════════════════════════╗');
-    console.log('║   Sobat HR - Database Health Check     ║');
-    console.log('╚════════════════════════════════════════╝');
+  console.log('');
+  console.log('Sobat HR - Database Health Check');
+  console.log('================================');
 
-    try {
-        await mongoose.connect(MONGODB_URI);
-        console.log(`\n${colors.green}✓${colors.reset} Connected to MongoDB\n`);
+  if (!MONGODB_URI) {
+    fail('MONGODB_URI is required');
+    process.exit(1);
+  }
 
-        let totalIssues = 0;
+  try {
+    mongoose.set('autoIndex', false);
+    mongoose.set('autoCreate', false);
 
-        totalIssues += await checkOrphanedRecords();
-        totalIssues += await checkDataIntegrity();
-        await getIndexUsage();
+    await mongoose.connect(MONGODB_URI, {
+      maxPoolSize: Number(process.env.MONGODB_MAX_POOL_SIZE || 20),
+      minPoolSize: Number(process.env.MONGODB_MIN_POOL_SIZE || 0),
+      serverSelectionTimeoutMS: Number(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS || 10000),
+      socketTimeoutMS: Number(process.env.MONGODB_SOCKET_TIMEOUT_MS || 45000),
+    });
 
-        console.log('═══════════════════════════════════════════');
-        if (totalIssues === 0) {
-            console.log(`${colors.green}✓ Database health check passed!${colors.reset}`);
-        } else {
-            console.log(`${colors.yellow}⚠ Found ${totalIssues} issue(s) that may need attention${colors.reset}`);
-        }
-        console.log('═══════════════════════════════════════════\n');
+    await mongoose.connection.db.admin().ping();
+    ok('Connected to MongoDB');
 
-    } catch (error) {
-        console.log(`${colors.red}Error: ${error.message}${colors.reset}`);
-        process.exit(1);
-    } finally {
-        await mongoose.disconnect();
+    let totalIssues = 0;
+    totalIssues += await checkIndexes();
+    totalIssues += await checkDuplicateKeys();
+    totalIssues += await checkOrphanedRecords();
+    totalIssues += await checkPayrollCalculations();
+
+    console.log('');
+    if (totalIssues === 0) {
+      ok('Database health check passed');
+    } else {
+      fail(`Database health check found ${totalIssues} issue(s)`);
+      process.exitCode = 1;
     }
+  } catch (error) {
+    fail(error.message);
+    process.exitCode = 1;
+  } finally {
+    await mongoose.disconnect();
+  }
 }
 
 main();

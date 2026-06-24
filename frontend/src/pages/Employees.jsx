@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useToast } from '../context/ToastContext';
 import { employeeAPI } from '../services/api';
 import {
     Users,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 
 const Employees = () => {
+    const { showToast } = useToast();
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -33,7 +35,10 @@ const Employees = () => {
     const departments = ['Sertifikasi', 'Finance', 'Admin/CS', 'Verifikasi', 'Teknis dan IT'];
 
     useEffect(() => {
-        fetchEmployees();
+        const timeout = setTimeout(() => {
+            fetchEmployees();
+        }, 300);
+        return () => clearTimeout(timeout);
     }, [search, department]);
 
     const fetchEmployees = async () => {
@@ -63,7 +68,7 @@ const Employees = () => {
             resetForm();
             fetchEmployees();
         } catch (error) {
-            alert(error.response?.data?.message || 'Error saving employee');
+            showToast(error.response?.data?.message || 'Error saving employee', 'error');
         }
     };
 
@@ -87,7 +92,7 @@ const Employees = () => {
                 await employeeAPI.delete(id);
                 fetchEmployees();
             } catch (error) {
-                alert(error.response?.data?.message || 'Error deleting employee');
+                showToast(error.response?.data?.message || 'Error deleting employee', 'error');
             }
         }
     };
@@ -320,7 +325,7 @@ const Employees = () => {
                                 <div>
                                     <label className="label">Initial Password</label>
                                     <input
-                                        type="text"
+                                        type="password"
                                         className="input"
                                         value={formData.password}
                                         onChange={(e) => setFormData({ ...formData, password: e.target.value })}

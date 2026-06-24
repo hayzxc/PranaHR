@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { performanceAPI, employeeAPI } from '../services/api';
 import {
     Target,
@@ -19,6 +20,7 @@ import {
 
 const Performance = () => {
     const { user, employee, canManageEmployees } = useAuth();
+    const { showToast } = useToast();
     const [activeTab, setActiveTab] = useState('goals');
     const [goals, setGoals] = useState([]);
     const [reviews, setReviews] = useState([]);
@@ -77,7 +79,7 @@ const Performance = () => {
             fetchData();
         } catch (error) {
             console.error('Error creating goal:', error);
-            alert('Error creating goal');
+            showToast('Error creating goal', 'error');
         }
     };
 

@@ -25,7 +25,7 @@ import {
     ChevronsRight,
     Crosshair
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const Layout = () => {
     const { user, employee, logout, canManageEmployees, isAdmin } = useAuth();
@@ -46,6 +46,22 @@ const Layout = () => {
             setAnimateNav(false);
         }
     }, [sidebarOpen]);
+
+    const profileRef = useRef(null);
+    const notifRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (profileRef.current && !profileRef.current.contains(e.target)) {
+                setProfileOpen(false);
+            }
+            if (notifRef.current && !notifRef.current.contains(e.target)) {
+                setNotifOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const handleLogout = () => {
         logout();
@@ -221,7 +237,7 @@ const Layout = () => {
 
                     <div className="flex items-center gap-3">
                         {/* Notifications */}
-                        <div className="relative">
+                        <div className="relative" ref={notifRef}>
                             <button
                                 className="relative p-2.5 text-surface-500 hover:text-surface-700 hover:bg-surface-100 rounded-xl transition-all active:scale-90 group"
                                 onClick={() => {
@@ -258,7 +274,7 @@ const Layout = () => {
                         </div>
 
                         {/* Profile dropdown */}
-                        <div className="relative">
+                        <div className="relative" ref={profileRef}>
                             <button
                                 className="flex items-center gap-3 p-2 hover:bg-surface-100 rounded-xl transition-all active:scale-95"
                                 onClick={() => setProfileOpen(!profileOpen)}
