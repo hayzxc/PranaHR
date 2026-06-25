@@ -130,15 +130,15 @@ const Leaves = () => {
                     </h2>
                     <div className="space-y-3">
                         {pendingLeaves.slice(0, 5).map((leave) => (
-                            <div key={leave._id} className="flex items-center justify-between p-4 bg-yellow-50 rounded-xl">
+                            <div key={leave.id} className="flex items-center justify-between p-4 bg-yellow-50 rounded-xl">
                                 <div className="flex items-center gap-4">
                                     <div className="w-10 h-10 rounded-full bg-yellow-200 flex items-center justify-center">
                                         <span className="text-yellow-700 font-semibold">
-                                            {leave.employeeId?.name?.[0]?.toUpperCase()}
+                                            {leave.employee?.name?.[0]?.toUpperCase()}
                                         </span>
                                     </div>
                                     <div>
-                                        <p className="font-medium text-gray-800">{leave.employeeId?.name}</p>
+                                        <p className="font-medium text-gray-800">{leave.employee?.name}</p>
                                         <p className="text-sm text-gray-500">
                                             {leave.type} • {formatDate(leave.startDate)} - {formatDate(leave.endDate)} ({leave.totalDays} days)
                                         </p>
@@ -146,13 +146,13 @@ const Leaves = () => {
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <button
-                                        onClick={() => handleApprove(leave._id)}
+                                        onClick={() => handleApprove(leave.id)}
                                         className="p-2 bg-green-100 text-green-600 hover:bg-green-200 rounded-lg transition-colors"
                                     >
                                         <Check className="w-5 h-5" />
                                     </button>
                                     <button
-                                        onClick={() => handleReject(leave._id)}
+                                        onClick={() => handleReject(leave.id)}
                                         className="p-2 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg transition-colors"
                                     >
                                         <X className="w-5 h-5" />
@@ -209,16 +209,16 @@ const Leaves = () => {
                             </thead>
                             <tbody>
                                 {leaves.map((leave) => (
-                                    <tr key={leave._id} className="border-b hover:bg-gray-50 transition-colors">
+                                    <tr key={leave.id} className="border-b hover:bg-gray-50 transition-colors">
                                         {canManageEmployees && (
                                             <td className="table-cell">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">
                                                         <span className="text-primary-600 font-semibold text-sm">
-                                                            {leave.employeeId?.name?.[0]?.toUpperCase()}
+                                                            {leave.employee?.name?.[0]?.toUpperCase()}
                                                         </span>
                                                     </div>
-                                                    <span>{leave.employeeId?.name}</span>
+                                                    <span>{leave.employee?.name}</span>
                                                 </div>
                                             </td>
                                         )}
@@ -238,13 +238,13 @@ const Leaves = () => {
                                                 {leave.status === 'pending' && (
                                                     <div className="flex items-center gap-2">
                                                         <button
-                                                            onClick={() => handleApprove(leave._id)}
+                                                            onClick={() => handleApprove(leave.id)}
                                                             className="p-1.5 text-green-600 hover:bg-green-50 rounded"
                                                         >
                                                             <Check className="w-4 h-4" />
                                                         </button>
                                                         <button
-                                                            onClick={() => handleReject(leave._id)}
+                                                            onClick={() => handleReject(leave.id)}
                                                             className="p-1.5 text-red-600 hover:bg-red-50 rounded"
                                                         >
                                                             <X className="w-4 h-4" />

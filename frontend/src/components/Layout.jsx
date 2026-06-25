@@ -23,7 +23,8 @@ import {
     Award,
     ChevronsLeft,
     ChevronsRight,
-    Crosshair
+    Crosshair,
+    Network
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 
@@ -74,6 +75,7 @@ const Layout = () => {
         { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
         { to: '/tasks', icon: ClipboardList, label: 'Tasks' },
         ...(canManageEmployees ? [{ to: '/employees', icon: Users, label: 'Employees' }] : []),
+        ...(canManageEmployees ? [{ to: '/org-chart', icon: Network, label: 'Org Chart' }] : []),
         ...(canManageEmployees ? [{ to: '/recruiting', icon: UserPlus, label: 'Recruiting' }] : []),
         ...(canManageEmployees ? [{ to: '/onboarding', icon: ClipboardCheck, label: 'Onboarding' }] : []),
         ...(canManageEmployees ? [{ to: '/payroll', icon: DollarSign, label: 'Payroll' }] : []),

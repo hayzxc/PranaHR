@@ -373,7 +373,7 @@ const OKR = () => {
                         <div className="stat-icon gradient-success text-white"><CheckCircle className="w-6 h-6" /></div>
                         <div>
                             <div className="stat-value">
-                                {stats.statusBreakdown?.find(s => s._id === 'completed')?.count || 0}
+                                {stats.statusBreakdown?.find(s => s.id === 'completed')?.count || 0}
                             </div>
                             <div className="stat-label">Completed</div>
                         </div>
@@ -382,7 +382,7 @@ const OKR = () => {
                         <div className="stat-icon gradient-warning text-white"><Clock className="w-6 h-6" /></div>
                         <div>
                             <div className="stat-value">
-                                {stats.statusBreakdown?.find(s => s._id === 'active')?.count || 0}
+                                {stats.statusBreakdown?.find(s => s.id === 'active')?.count || 0}
                             </div>
                             <div className="stat-label">Active</div>
                         </div>
@@ -481,7 +481,7 @@ const OKR = () => {
                             ) : (
                                 <div className="grid gap-4">
                                     {goals.map(goal => (
-                                        <div key={goal._id} className="card p-6 hover:shadow-lg transition-shadow">
+                                        <div key={goal.id} className="card p-6 hover:shadow-lg transition-shadow">
                                             <div className="flex items-start justify-between gap-4">
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2 mb-2">
@@ -500,7 +500,7 @@ const OKR = () => {
                                                         {goal.employee && <span>Assigned to: {goal.employee.name}</span>}
                                                     </div>
                                                 </div>
-                                                <button onClick={() => handleDeleteGoal(goal._id)} className="p-2 text-gray-400 hover:text-red-500">
+                                                <button onClick={() => handleDeleteGoal(goal.id)} className="p-2 text-gray-400 hover:text-red-500">
                                                     <Trash2 className="w-4 h-4" />
                                                 </button>
                                             </div>
@@ -513,7 +513,7 @@ const OKR = () => {
                                                     <div className="h-full bg-gradient-to-r from-primary-500 to-primary-600 rounded-full transition-all" style={{ width: `${goal.progress || 0}%` }} />
                                                 </div>
                                                 <input type="range" min="0" max="100" value={goal.progress || 0}
-                                                    onChange={(e) => handleUpdateProgress(goal._id, e.target.value)}
+                                                    onChange={(e) => handleUpdateProgress(goal.id, e.target.value)}
                                                     className="w-full mt-2 cursor-pointer" />
                                             </div>
                                         </div>
@@ -546,7 +546,7 @@ const OKR = () => {
                                         </thead>
                                         <tbody>
                                             {reviews.map(review => (
-                                                <tr key={review._id}>
+                                                <tr key={review.id}>
                                                     <td>
                                                         <div>
                                                             <p className="font-medium">{review.employee?.name}</p>
@@ -592,10 +592,10 @@ const OKR = () => {
                             ) : (
                                 okrs.map(okr => (
                                     <OKRCard
-                                        key={okr._id}
+                                        key={okr.id}
                                         okr={okr}
-                                        expanded={expandedOKR === okr._id}
-                                        onToggle={() => setExpandedOKR(expandedOKR === okr._id ? null : okr._id)}
+                                        expanded={expandedOKR === okr.id}
+                                        onToggle={() => setExpandedOKR(expandedOKR === okr.id ? null : okr.id)}
                                         onUpdateKR={handleUpdateKR}
                                         onUpdateStatus={handleUpdateOKRStatus}
                                         onDelete={handleDeleteOKR}
@@ -624,20 +624,20 @@ const OKR = () => {
                                         <div className="flex items-center gap-2">
                                             <h3 className="text-lg font-bold text-gray-700">{dept}</h3>
                                             <span className="badge badge-neutral">{deptOkrs.length} OKRs</span>
-                                            {stats?.avgScoreByDept?.find(d => d._id === dept) && (
+                                            {stats?.avgScoreByDept?.find(d => d.id === dept) && (
                                                 <span className={`text-sm font-semibold ${getScoreColor(
-                                                    stats.avgScoreByDept.find(d => d._id === dept).avgScore
+                                                    stats.avgScoreByDept.find(d => d.id === dept).avgScore
                                                 )}`}>
-                                                    Avg: {(stats.avgScoreByDept.find(d => d._id === dept).avgScore * 100).toFixed(0)}%
+                                                    Avg: {(stats.avgScoreByDept.find(d => d.id === dept).avgScore * 100).toFixed(0)}%
                                                 </span>
                                             )}
                                         </div>
                                         {deptOkrs.map(okr => (
                                             <OKRCard
-                                                key={okr._id}
+                                                key={okr.id}
                                                 okr={okr}
-                                                expanded={expandedOKR === okr._id}
-                                                onToggle={() => setExpandedOKR(expandedOKR === okr._id ? null : okr._id)}
+                                                expanded={expandedOKR === okr.id}
+                                                onToggle={() => setExpandedOKR(expandedOKR === okr.id ? null : okr.id)}
                                                 onUpdateKR={handleUpdateKR}
                                                 onUpdateStatus={handleUpdateOKRStatus}
                                                 onDelete={handleDeleteOKR}
@@ -674,9 +674,9 @@ const OKR = () => {
                                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                                     {kpis.map(kpi => (
                                         <KPICard
-                                            key={kpi._id}
+                                            key={kpi.id}
                                             kpi={kpi}
-                                            onAddEntry={() => setShowEntryModal(kpi._id)}
+                                            onAddEntry={() => setShowEntryModal(kpi.id)}
                                             onDelete={handleDeleteKPI}
                                             getTrendIcon={getTrendIcon}
                                             canManageEmployees={canManageEmployees}
@@ -756,7 +756,7 @@ const OKR = () => {
                                         onChange={(e) => setOkrForm({ ...okrForm, employeeId: e.target.value })}>
                                         <option value="">Self</option>
                                         {employees.map(emp => (
-                                            <option key={emp._id} value={emp._id}>{emp.name} — {emp.department}</option>
+                                            <option key={emp.id} value={emp.id}>{emp.name} — {emp.department}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -897,7 +897,7 @@ const OKR = () => {
                                         onChange={(e) => setKpiForm({ ...kpiForm, employeeId: e.target.value })}>
                                         <option value="">Self</option>
                                         {employees.map(emp => (
-                                            <option key={emp._id} value={emp._id}>{emp.name} — {emp.department}</option>
+                                            <option key={emp.id} value={emp.id}>{emp.name} — {emp.department}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -1011,7 +1011,7 @@ const OKR = () => {
                                         onChange={(e) => setGoalForm({ ...goalForm, employeeId: e.target.value })}>
                                         <option value="">Self</option>
                                         {employees.map(emp => (
-                                            <option key={emp._id} value={emp._id}>{emp.name}</option>
+                                            <option key={emp.id} value={emp.id}>{emp.name}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -1066,14 +1066,14 @@ const OKRCard = ({ okr, expanded, onToggle, onUpdateKR, onUpdateStatus, onDelete
                 <div className="flex items-center gap-2 flex-shrink-0">
                     {okr.status === 'draft' && (
                         <button
-                            onClick={(e) => { e.stopPropagation(); onUpdateStatus(okr._id, 'active'); }}
+                            onClick={(e) => { e.stopPropagation(); onUpdateStatus(okr.id, 'active'); }}
                             className="text-xs btn btn-outline py-1 px-3"
                         >
                             Activate
                         </button>
                     )}
                     <button
-                        onClick={(e) => { e.stopPropagation(); onDelete(okr._id); }}
+                        onClick={(e) => { e.stopPropagation(); onDelete(okr.id); }}
                         className="p-2 text-gray-400 hover:text-red-500 transition-colors"
                     >
                         <Trash2 className="w-4 h-4" />
@@ -1088,7 +1088,7 @@ const OKRCard = ({ okr, expanded, onToggle, onUpdateKR, onUpdateStatus, onDelete
                     {okr.keyResults?.map((kr, idx) => {
                         const progress = getKRProgress(kr);
                         return (
-                            <div key={kr._id || idx} className="p-4 bg-gray-50 rounded-xl">
+                            <div key={kr.id || idx} className="p-4 bg-gray-50 rounded-xl">
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs font-bold text-gray-400">KR {idx + 1}</span>
@@ -1114,7 +1114,7 @@ const OKRCard = ({ okr, expanded, onToggle, onUpdateKR, onUpdateStatus, onDelete
                                         type="number"
                                         className="w-20 form-input py-1 px-2 text-sm text-center"
                                         value={kr.currentValue}
-                                        onChange={(e) => onUpdateKR(okr._id, idx, e.target.value)}
+                                        onChange={(e) => onUpdateKR(okr.id, idx, e.target.value)}
                                         min="0"
                                         onClick={(e) => e.stopPropagation()}
                                     />
@@ -1130,13 +1130,13 @@ const OKRCard = ({ okr, expanded, onToggle, onUpdateKR, onUpdateStatus, onDelete
                     {okr.status === 'active' && (
                         <div className="flex gap-2 pt-2">
                             <button
-                                onClick={() => onUpdateStatus(okr._id, 'completed')}
+                                onClick={() => onUpdateStatus(okr.id, 'completed')}
                                 className="btn btn-primary py-1.5 text-sm flex items-center gap-1"
                             >
                                 <CheckCircle className="w-3 h-3" /> Mark Complete
                             </button>
                             <button
-                                onClick={() => onUpdateStatus(okr._id, 'cancelled')}
+                                onClick={() => onUpdateStatus(okr.id, 'cancelled')}
                                 className="btn btn-ghost py-1.5 text-sm text-red-500"
                             >
                                 Cancel OKR
@@ -1222,7 +1222,7 @@ const KPICard = ({ kpi, onAddEntry, onDelete, getTrendIcon, canManageEmployees }
                     <Plus className="w-3 h-3" /> Log Entry
                 </button>
                 {canManageEmployees && (
-                    <button onClick={() => onDelete(kpi._id)} className="p-2 text-gray-400 hover:text-red-500 transition-colors">
+                    <button onClick={() => onDelete(kpi.id)} className="p-2 text-gray-400 hover:text-red-500 transition-colors">
                         <Trash2 className="w-4 h-4" />
                     </button>
                 )}

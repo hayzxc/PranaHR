@@ -1,13 +1,12 @@
 /**
  * Recruiting Routes
  * Type-safe job postings and candidate management
+ * PONYTAIL FIX: Prisma Integration & Strict Schema Mapping
  */
 
 const express = require('express');
 const router = express.Router();
-const Job = require('../models/Job');
-const Candidate = require('../models/Candidate');
-const Employee = require('../models/Employee');
+const prisma = require('../lib/prisma').default;
 const { auth, authorize } = require('../middleware/auth');
 const { idValidation, jobValidation, candidateValidation } = require('../middleware/validate');
 const { catchAsync } = require('../middleware/errorHandler');
@@ -20,50 +19,55 @@ const { NotFoundError, BadRequestError, ConflictError } = require('../utils/erro
 // @desc    Get recruiting statistics
 // @access  Private (Admin, HR)
 router.get('/stats', auth, authorize('admin', 'hr'), catchAsync(async (req, res) => {
-  const [jobStats, candidateStats, sourceStats, timeToHire, recentHires] = await Promise.all([
-    Job.aggregate([
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 },
-          totalOpenings: { $sum: '$openings' },
-          totalApplicants: { $sum: '$applicantCount' },
-        },
-      },
-    ]),
-    Candidate.aggregate([
-      { $group: { _id: '$stage', count: { $sum: 1 } } },
-    ]),
-    Candidate.aggregate([
-      { $group: { _id: '$source', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-    ]),
-    Candidate.aggregate([
-      { $match: { stage: 'hired', hiredAt: { $exists: true } } },
-      {
-        $project: {
-          daysToHire: {
-            $divide: [
-              { $subtract: ['$hiredAt', '$createdAt'] },
-              1000 * 60 * 60 * 24,
-            ],
-          },
-        },
-      },
-      { $group: { _id: null, avgDays: { $avg: '$daysToHire' } } },
-    ]),
-    Candidate.find({ stage: 'hired' })
-      .populate('job', 'title department')
-      .sort({ hiredAt: -1 })
-      .limit(5)
-      .lean(),
+  const [jobs, candidates, recentHires] = await Promise.all([
+    prisma.job.findMany({ include: { _count: { select: { candidates: true } } } }),
+    prisma.candidate.findMany(),
+    prisma.candidate.findMany({
+      where: { stage: 'hired' },
+      include: { job: { select: { title: true, department: true } } },
+      orderBy: { updatedAt: 'desc' },
+      take: 5
+    })
   ]);
+
+  const jobStatsObj = {};
+  let totalOpenings = 0; // Schema lacks 'openings', defaulting to 1 per job
+  let totalApplicants = 0;
+
+  jobs.forEach(j => {
+    jobStatsObj[j.status] = (jobStatsObj[j.status] || 0) + 1;
+    totalOpenings += 1;
+    totalApplicants += j._count.candidates;
+  });
+
+  const jobStats = Object.entries(jobStatsObj).map(([id, count]) => ({
+    _id: id, count, totalOpenings, totalApplicants
+  }));
+
+  const candidateStatsObj = {};
+  const sourceStatsObj = {};
+  let timeToHireTotal = 0;
+  let hiredCount = 0;
+
+  candidates.forEach(c => {
+    candidateStatsObj[c.stage] = (candidateStatsObj[c.stage] || 0) + 1;
+    sourceStatsObj[c.source] = (sourceStatsObj[c.source] || 0) + 1;
+
+    if (c.stage === 'hired') {
+      const days = (new Date(c.updatedAt) - new Date(c.createdAt)) / (1000 * 60 * 60 * 24);
+      timeToHireTotal += days;
+      hiredCount++;
+    }
+  });
+
+  const candidateStats = Object.entries(candidateStatsObj).map(([id, count]) => ({ _id: id, count }));
+  const sourceStats = Object.entries(sourceStatsObj).map(([id, count]) => ({ _id: id, count })).sort((a,b) => b.count - a.count);
 
   success(res, {
     jobs: jobStats,
     candidates: candidateStats,
     sources: sourceStats,
-    avgTimeToHire: Math.round(timeToHire[0]?.avgDays || 0),
+    avgTimeToHire: hiredCount > 0 ? Math.round(timeToHireTotal / hiredCount) : 0,
     recentHires,
   });
 }));
@@ -74,36 +78,35 @@ router.get('/stats', auth, authorize('admin', 'hr'), catchAsync(async (req, res)
 // @desc    Get public job listings (no auth required)
 // @access  Public
 router.get('/jobs/public', catchAsync(async (req, res) => {
-  const { department, type, level, search, page = 1, limit = 20 } = req.query;
-  const query = { status: 'open' };
+  const { department, type, search, page = 1, limit = 20 } = req.query;
+  const where = { status: 'open' };
 
-  if (department) {query.department = department;}
-  if (type) {query.type = type;}
-  if (level) {query.level = level;}
+  if (department) where.department = department;
+  if (type) where.type = type;
 
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
 
-  let jobs = await Job.find(query)
-    .select('title department location type level description requirements salary.isVisible salary.min salary.max salary.currency openings publishedAt')
-    .sort({ publishedAt: -1 })
-    .skip((pageNum - 1) * limitNum)
-    .limit(limitNum)
-    .lean();
+  let jobs = await prisma.job.findMany({
+    where,
+    select: { id: true, title: true, department: true, location: true, type: true, description: true, requirements: true, salaryRange: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+  });
 
-  // Text search filter
   if (search) {
     const searchLower = search.toLowerCase();
     jobs = jobs.filter(j =>
       j.title.toLowerCase().includes(searchLower) ||
-            j.department.toLowerCase().includes(searchLower) ||
-            j.location?.toLowerCase().includes(searchLower),
+      j.department.toLowerCase().includes(searchLower) ||
+      j.location?.toLowerCase().includes(searchLower)
     );
   }
 
-  const total = await Job.countDocuments(query);
+  // Handle pagination in memory for text search
+  const total = jobs.length;
+  const paginatedJobs = jobs.slice((pageNum - 1) * limitNum, pageNum * limitNum);
 
-  paginated(res, jobs, { total, page: pageNum, limit: limitNum });
+  paginated(res, paginatedJobs, { total, page: pageNum, limit: limitNum });
 }));
 
 // @route   GET /api/recruiting/jobs
@@ -111,24 +114,24 @@ router.get('/jobs/public', catchAsync(async (req, res) => {
 // @access  Private
 router.get('/jobs', auth, catchAsync(async (req, res) => {
   const { status, department, type, page = 1, limit = 10 } = req.query;
-  const query = {};
+  const where = {};
 
-  if (status) {query.status = status;}
-  if (department) {query.department = department;}
-  if (type) {query.type = type;}
+  if (status) where.status = status;
+  if (department) where.department = department;
+  if (type) where.type = type;
 
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
 
   const [total, jobs] = await Promise.all([
-    Job.countDocuments(query),
-    Job.find(query)
-      .populate('hiringManager', 'name employeeId department')
-      .populate('createdBy', 'email')
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
+    prisma.job.count({ where }),
+    prisma.job.findMany({
+      where,
+      include: { createdBy: { select: { name: true, email: true } }, _count: { select: { candidates: true } } },
+      orderBy: { createdAt: 'desc' },
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum,
+    }),
   ]);
 
   paginated(res, jobs, { total, page: pageNum, limit: limitNum });
@@ -138,20 +141,19 @@ router.get('/jobs', auth, catchAsync(async (req, res) => {
 // @desc    Get single job
 // @access  Private
 router.get('/jobs/:id', auth, idValidation, catchAsync(async (req, res) => {
-  const job = await Job.findById(req.params.id)
-    .populate('hiringManager', 'name employeeId email department')
-    .populate('createdBy', 'email')
-    .lean();
+  const job = await prisma.job.findUnique({
+    where: { id: req.params.id },
+    include: { createdBy: { select: { name: true, email: true } } }
+  });
 
-  if (!job) {
-    throw new NotFoundError('Job');
-  }
+  if (!job) throw new NotFoundError('Job');
 
-  // Get candidate count by stage
-  const candidatesByStage = await Candidate.aggregate([
-    { $match: { job: job._id } },
-    { $group: { _id: '$stage', count: { $sum: 1 } } },
-  ]);
+  const candidates = await prisma.candidate.findMany({ where: { jobId: job.id } });
+  const stageObj = {};
+  candidates.forEach(c => {
+    stageObj[c.stage] = (stageObj[c.stage] || 0) + 1;
+  });
+  const candidatesByStage = Object.entries(stageObj).map(([id, count]) => ({ _id: id, count }));
 
   success(res, { ...job, candidatesByStage });
 }));
@@ -160,111 +162,93 @@ router.get('/jobs/:id', auth, idValidation, catchAsync(async (req, res) => {
 // @desc    Create job
 // @access  Private (Admin, HR)
 router.post('/jobs', auth, authorize('admin', 'hr'), jobValidation, catchAsync(async (req, res) => {
-  const { title, department, location, type, level, description, requirements, responsibilities, skills, salary, benefits, openings, hiringManager, closingDate } = req.body;
+  const { title, department, location, type, description, requirements, responsibilities, salary } = req.body;
 
-  if (!title || !department) {
-    throw new BadRequestError('Title and department are required');
+  if (!title || !department || !type || !description) {
+    throw new BadRequestError('Title, department, type, and description are required');
   }
 
-  // Validate hiring manager if provided
-  if (hiringManager) {
-    const manager = await Employee.findById(hiringManager);
-    if (!manager) {
-      throw new NotFoundError('Hiring manager');
-    }
+  const employee = await prisma.employee.findUnique({ where: { userId: req.user.id } });
+  if (!employee) throw new NotFoundError('Employee profile required to create jobs');
+
+  // Map Mongoose salary object to Prisma salaryRange string
+  let salaryRange = null;
+  if (salary && typeof salary === 'object') {
+    salaryRange = `${salary.currency || '$'}${salary.min || 0} - ${salary.max || 0}`;
+  } else if (typeof salary === 'string') {
+    salaryRange = salary;
   }
 
-  const job = new Job({
-    title,
-    department,
-    location,
-    type: type || 'full_time',
-    level: level || 'mid',
-    description,
-    requirements,
-    responsibilities,
-    skills,
-    salary,
-    benefits,
-    openings: openings || 1,
-    hiringManager,
-    closingDate,
-    createdBy: req.user._id,
+  const job = await prisma.job.create({
+    data: {
+      title,
+      department,
+      location: location || 'Remote',
+      type,
+      description,
+      requirements: requirements || [],
+      responsibilities: responsibilities || [],
+      salaryRange,
+      createdById: employee.id,
+      status: 'open',
+    },
+    include: { createdBy: { select: { name: true } } }
   });
 
-  await job.save();
-
-  const populatedJob = await Job.findById(job._id)
-    .populate('hiringManager', 'name')
-    .lean();
-
-  created(res, populatedJob, 'Job created successfully');
+  created(res, job, 'Job created successfully');
 }));
 
 // @route   PUT /api/recruiting/jobs/:id
 // @desc    Update job
 // @access  Private (Admin, HR)
 router.put('/jobs/:id', auth, authorize('admin', 'hr'), idValidation, catchAsync(async (req, res) => {
-  const job = await Job.findById(req.params.id);
+  const job = await prisma.job.findUnique({ where: { id: req.params.id } });
 
-  if (!job) {
-    throw new NotFoundError('Job');
-  }
+  if (!job) throw new NotFoundError('Job');
 
-  const allowedUpdates = [
-    'title', 'department', 'location', 'type', 'level',
-    'description', 'requirements', 'responsibilities', 'skills',
-    'salary', 'benefits', 'openings', 'status', 'closingDate', 'hiringManager',
-  ];
-
-  allowedUpdates.forEach(field => {
-    if (req.body[field] !== undefined) {
-      job[field] = req.body[field];
-    }
+  const data = {};
+  const allowed = ['title', 'department', 'location', 'type', 'description', 'requirements', 'responsibilities', 'status'];
+  
+  allowed.forEach(field => {
+    if (req.body[field] !== undefined) data[field] = req.body[field];
   });
 
-  // Set published date when opening
-  if (req.body.status === 'open' && !job.publishedAt) {
-    job.publishedAt = new Date();
+  if (req.body.salary) {
+    if (typeof req.body.salary === 'object') {
+      data.salaryRange = `${req.body.salary.currency || '$'}${req.body.salary.min || 0} - ${req.body.salary.max || 0}`;
+    } else {
+      data.salaryRange = req.body.salary;
+    }
   }
 
-  // Set closed date when closing
-  if (req.body.status === 'closed' && !job.closedAt) {
-    job.closedAt = new Date();
-  }
+  const updatedJob = await prisma.job.update({
+    where: { id: req.params.id },
+    data,
+    include: { createdBy: { select: { name: true } } }
+  });
 
-  await job.save();
-
-  const populatedJob = await Job.findById(job._id)
-    .populate('hiringManager', 'name')
-    .lean();
-
-  success(res, populatedJob, 'Job updated successfully');
+  success(res, updatedJob, 'Job updated successfully');
 }));
 
 // @route   DELETE /api/recruiting/jobs/:id
 // @desc    Delete job
 // @access  Private (Admin)
 router.delete('/jobs/:id', auth, authorize('admin'), idValidation, catchAsync(async (req, res) => {
-  const job = await Job.findById(req.params.id);
+  const job = await prisma.job.findUnique({ where: { id: req.params.id } });
 
-  if (!job) {
-    throw new NotFoundError('Job');
-  }
+  if (!job) throw new NotFoundError('Job');
 
-  // Check for active candidates
-  const activeCandidates = await Candidate.countDocuments({
-    job: job._id,
-    stage: { $nin: ['rejected', 'withdrawn'] },
+  const activeCandidates = await prisma.candidate.count({
+    where: { jobId: job.id, stage: { notIn: ['rejected', 'withdrawn'] } }
   });
 
-  if (activeCandidates > 0 && !req.query.force) {
+  if (activeCandidates > 0 && req.query.force !== 'true') {
     throw new BadRequestError(`Job has ${activeCandidates} active candidates. Use ?force=true to delete anyway.`);
   }
 
-  // Delete associated candidates
-  await Candidate.deleteMany({ job: job._id });
-  await Job.findByIdAndDelete(job._id);
+  // Delete associated candidates first (if Cascade isn't supported properly by DB natively)
+  await prisma.candidate.deleteMany({ where: { jobId: job.id } });
+  await prisma.job.delete({ where: { id: job.id } });
 
   success(res, null, 'Job and associated candidates deleted');
 }));
@@ -275,32 +259,27 @@ router.delete('/jobs/:id', auth, authorize('admin'), idValidation, catchAsync(as
 // @desc    Get all candidates for a job
 // @access  Private (Admin, HR)
 router.get('/jobs/:jobId/candidates', auth, authorize('admin', 'hr'), catchAsync(async (req, res) => {
-  const { stage, rating, source, page = 1, limit = 20 } = req.query;
+  const { stage, source, page = 1, limit = 20 } = req.query;
 
-  // Verify job exists
-  const job = await Job.findById(req.params.jobId);
-  if (!job) {
-    throw new NotFoundError('Job');
-  }
+  const job = await prisma.job.findUnique({ where: { id: req.params.jobId } });
+  if (!job) throw new NotFoundError('Job');
 
-  const query = { job: req.params.jobId };
+  const where = { jobId: job.id };
 
-  if (stage) {query.stage = stage;}
-  if (rating) {query.rating = parseInt(rating);}
-  if (source) {query.source = source;}
+  if (stage) where.stage = stage;
+  if (source) where.source = source;
 
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
 
   const [total, candidates] = await Promise.all([
-    Candidate.countDocuments(query),
-    Candidate.find(query)
-      .populate('referredBy', 'name')
-      .populate('interviews.interviewers', 'name')
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
+    prisma.candidate.count({ where }),
+    prisma.candidate.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum,
+    })
   ]);
 
   paginated(res, candidates, { total, page: pageNum, limit: limitNum });
@@ -310,16 +289,12 @@ router.get('/jobs/:jobId/candidates', auth, authorize('admin', 'hr'), catchAsync
 // @desc    Get single candidate
 // @access  Private (Admin, HR)
 router.get('/candidates/:id', auth, authorize('admin', 'hr'), idValidation, catchAsync(async (req, res) => {
-  const candidate = await Candidate.findById(req.params.id)
-    .populate('job', 'title department location type')
-    .populate('referredBy', 'name employeeId')
-    .populate('interviews.interviewers', 'name email')
-    .populate('notes.author', 'email')
-    .lean();
+  const candidate = await prisma.candidate.findUnique({
+    where: { id: req.params.id },
+    include: { job: { select: { title: true, department: true, location: true, type: true } } }
+  });
 
-  if (!candidate) {
-    throw new NotFoundError('Candidate');
-  }
+  if (!candidate) throw new NotFoundError('Candidate');
 
   success(res, candidate);
 }));
@@ -328,53 +303,46 @@ router.get('/candidates/:id', auth, authorize('admin', 'hr'), idValidation, catc
 // @desc    Create candidate (application submission)
 // @access  Public
 router.post('/jobs/:jobId/candidates', candidateValidation, catchAsync(async (req, res) => {
-  const job = await Job.findById(req.params.jobId);
+  const job = await prisma.job.findUnique({ where: { id: req.params.jobId } });
 
-  if (!job) {
-    throw new NotFoundError('Job');
-  }
+  if (!job) throw new NotFoundError('Job');
+  if (job.status !== 'open') throw new BadRequestError('This job is not accepting applications');
 
-  if (job.status !== 'open') {
-    throw new BadRequestError('This job is not accepting applications');
-  }
-
-  const { firstName, lastName, email, phone, resumeUrl, coverLetter, experience, education, skills, expectedSalary, noticePeriod, source } = req.body;
+  const { firstName, lastName, email, phone, resumeUrl, resume, coverLetter, source } = req.body;
 
   if (!firstName || !lastName || !email) {
     throw new BadRequestError('First name, last name, and email are required');
   }
 
-  // Check for duplicate application
-  const existing = await Candidate.findOne({ job: req.params.jobId, email: email.toLowerCase() });
-  if (existing) {
-    throw new ConflictError('You have already applied for this position');
-  }
-
-  const candidate = new Candidate({
-    job: req.params.jobId,
-    firstName,
-    lastName,
-    email: email.toLowerCase(),
-    phone,
-    resumeUrl,
-    coverLetter,
-    experience,
-    education,
-    skills,
-    expectedSalary,
-    noticePeriod,
-    source: source || 'direct',
+  const emailLower = email.toLowerCase();
+  const existing = await prisma.candidate.findFirst({
+    where: { jobId: job.id, email: emailLower }
   });
 
-  await candidate.save();
+  if (existing) throw new ConflictError('You have already applied for this position');
 
-  // Update applicant count
-  job.applicantCount = (job.applicantCount || 0) + 1;
-  await job.save();
+  // Mongoose used resumeUrl, Prisma uses resume. We accept both for backwards compat.
+  const finalResume = resume || resumeUrl || '';
+
+  const candidate = await prisma.candidate.create({
+    data: {
+      jobId: job.id,
+      firstName,
+      lastName,
+      email: emailLower,
+      phone: phone || '',
+      resume: finalResume,
+      coverLetter: coverLetter || null,
+      source: source || 'website',
+      stage: 'applied',
+      interviews: [],
+      notes: [],
+    }
+  });
 
   created(res, {
     message: 'Application submitted successfully',
-    candidateId: candidate._id,
+    candidateId: candidate.id,
     applicationDate: candidate.createdAt,
   });
 }));
@@ -383,262 +351,169 @@ router.post('/jobs/:jobId/candidates', candidateValidation, catchAsync(async (re
 // @desc    Update candidate
 // @access  Private (Admin, HR)
 router.put('/candidates/:id', auth, authorize('admin', 'hr'), idValidation, catchAsync(async (req, res) => {
-  const candidate = await Candidate.findById(req.params.id);
+  const candidate = await prisma.candidate.findUnique({ where: { id: req.params.id } });
 
-  if (!candidate) {
-    throw new NotFoundError('Candidate');
-  }
+  if (!candidate) throw new NotFoundError('Candidate');
 
-  const allowedUpdates = [
-    'firstName', 'lastName', 'email', 'phone', 'resumeUrl',
-    'experience', 'education', 'skills', 'expectedSalary',
-    'noticePeriod', 'stage', 'rating', 'rejectionReason', 'source',
-  ];
+  const data = {};
+  const allowed = ['firstName', 'lastName', 'email', 'phone', 'resume', 'coverLetter', 'stage', 'rejectionReason', 'source'];
 
-  allowedUpdates.forEach(field => {
-    if (req.body[field] !== undefined) {
-      candidate[field] = req.body[field];
-    }
+  allowed.forEach(f => {
+    if (req.body[f] !== undefined) data[f] = req.body[f];
   });
 
-  if (req.body.stage === 'hired' && !candidate.hiredAt) {
-    candidate.hiredAt = new Date();
-  }
+  // Handle Mongoose backwards compatibility
+  if (req.body.resumeUrl !== undefined) data.resume = req.body.resumeUrl;
 
-  if (req.body.stage === 'rejected' && !candidate.rejectedAt) {
-    candidate.rejectedAt = new Date();
-  }
+  const updatedCandidate = await prisma.candidate.update({
+    where: { id: req.params.id },
+    data,
+    include: { job: { select: { title: true, department: true } } }
+  });
 
-  await candidate.save();
-
-  const populatedCandidate = await Candidate.findById(candidate._id)
-    .populate('job', 'title department')
-    .lean();
-
-  success(res, populatedCandidate, 'Candidate updated successfully');
+  success(res, updatedCandidate, 'Candidate updated successfully');
 }));
 
 // @route   PUT /api/recruiting/candidates/:id/stage
 // @desc    Move candidate to next stage
 // @access  Private (Admin, HR)
 router.put('/candidates/:id/stage', auth, authorize('admin', 'hr'), idValidation, catchAsync(async (req, res) => {
-  const candidate = await Candidate.findById(req.params.id);
+  const candidate = await prisma.candidate.findUnique({ where: { id: req.params.id } });
 
-  if (!candidate) {
-    throw new NotFoundError('Candidate');
-  }
+  if (!candidate) throw new NotFoundError('Candidate');
 
   const { stage, rejectionReason, notes } = req.body;
 
-  if (!stage) {
-    throw new BadRequestError('Stage is required');
-  }
+  if (!stage) throw new BadRequestError('Stage is required');
 
-  const validStages = ['applied', 'screening', 'interview', 'assessment', 'offer', 'hired', 'rejected', 'withdrawn'];
+  const validStages = ['applied', 'screening', 'interviewing', 'interview', 'offer', 'offered', 'hired', 'rejected', 'withdrawn'];
   if (!validStages.includes(stage)) {
     throw new BadRequestError(`Invalid stage. Must be one of: ${validStages.join(', ')}`);
   }
 
   const previousStage = candidate.stage;
-  candidate.stage = stage;
+  const data = { stage: stage === 'interview' ? 'interviewing' : stage === 'offer' ? 'offered' : stage };
 
   if (stage === 'rejected') {
-    candidate.rejectedAt = new Date();
-    candidate.rejectionReason = rejectionReason || 'Not specified';
+    data.rejectionReason = rejectionReason || 'Not specified';
   }
 
-  if (stage === 'hired') {
-    candidate.hiredAt = new Date();
-  }
-
-  // Add stage change to notes
+  // Handle notes
   if (notes) {
-    candidate.notes.push({
-      author: req.user._id,
+    const newNote = {
+      authorId: req.user.id,
       text: notes,
-      type: 'stage_change',
-      metadata: { from: previousStage, to: stage },
-    });
+      date: new Date().toISOString(),
+      metadata: { from: previousStage, to: stage }
+    };
+    data.notes = Array.isArray(candidate.notes) ? [...candidate.notes, newNote] : [newNote];
   }
 
-  await candidate.save();
+  const updatedCandidate = await prisma.candidate.update({
+    where: { id: req.params.id },
+    data
+  });
 
-  success(res, candidate, `Candidate moved to ${stage} stage`);
+  success(res, updatedCandidate, `Candidate moved to ${stage} stage`);
 }));
 
 // @route   POST /api/recruiting/candidates/:id/interviews
 // @desc    Schedule interview
 // @access  Private (Admin, HR)
 router.post('/candidates/:id/interviews', auth, authorize('admin', 'hr'), idValidation, catchAsync(async (req, res) => {
-  const candidate = await Candidate.findById(req.params.id);
+  const candidate = await prisma.candidate.findUnique({ where: { id: req.params.id } });
 
-  if (!candidate) {
-    throw new NotFoundError('Candidate');
-  }
+  if (!candidate) throw new NotFoundError('Candidate');
 
-  const { type, scheduledAt, interviewers, location, notes, duration } = req.body;
+  const { type, scheduledAt, interviewers, notes } = req.body;
 
-  if (!type || !scheduledAt) {
-    throw new BadRequestError('Interview type and scheduled time are required');
-  }
+  if (!type || !scheduledAt) throw new BadRequestError('Interview type and scheduled time are required');
 
-  const scheduledDate = new Date(scheduledAt);
-  if (scheduledDate < new Date()) {
-    throw new BadRequestError('Interview cannot be scheduled in the past');
-  }
-
-  // Validate interviewers
-  if (interviewers && interviewers.length > 0) {
-    const validInterviewers = await Employee.find({ _id: { $in: interviewers } });
-    if (validInterviewers.length !== interviewers.length) {
-      throw new NotFoundError('One or more interviewers');
-    }
-  }
-
-  candidate.interviews.push({
+  const newInterview = {
     type,
-    scheduledAt: scheduledDate,
-    interviewers,
-    location,
-    notes,
-    duration: duration || 60,
-    status: 'scheduled',
-  });
+    date: new Date(scheduledAt).toISOString(),
+    interviewerId: Array.isArray(interviewers) ? interviewers[0] : interviewers,
+    notes: notes || '',
+    result: 'scheduled'
+  };
 
-  // Auto-advance stage to interview if needed
+  const data = {
+    interviews: Array.isArray(candidate.interviews) ? [...candidate.interviews, newInterview] : [newInterview]
+  };
+
   if (['applied', 'screening'].includes(candidate.stage)) {
-    candidate.stage = 'interview';
+    data.stage = 'interviewing';
   }
 
-  await candidate.save();
-
-  const populatedCandidate = await Candidate.findById(candidate._id)
-    .populate('interviews.interviewers', 'name email')
-    .lean();
-
-  created(res, populatedCandidate, 'Interview scheduled successfully');
-}));
-
-// @route   PUT /api/recruiting/candidates/:id/interviews/:interviewId
-// @desc    Update interview
-// @access  Private (Admin, HR)
-router.put('/candidates/:id/interviews/:interviewId', auth, authorize('admin', 'hr'), catchAsync(async (req, res) => {
-  const candidate = await Candidate.findById(req.params.id);
-
-  if (!candidate) {
-    throw new NotFoundError('Candidate');
-  }
-
-  const interview = candidate.interviews.id(req.params.interviewId);
-  if (!interview) {
-    throw new NotFoundError('Interview');
-  }
-
-  const allowedUpdates = ['scheduledAt', 'feedback', 'rating', 'status', 'location', 'notes', 'decision'];
-
-  allowedUpdates.forEach(field => {
-    if (req.body[field] !== undefined) {
-      interview[field] = req.body[field];
-    }
+  const updatedCandidate = await prisma.candidate.update({
+    where: { id: req.params.id },
+    data
   });
 
-  if (req.body.status === 'completed') {
-    interview.completedAt = new Date();
-  }
-
-  await candidate.save();
-
-  success(res, candidate, 'Interview updated successfully');
+  created(res, updatedCandidate, 'Interview scheduled successfully');
 }));
 
 // @route   POST /api/recruiting/candidates/:id/notes
 // @desc    Add note to candidate
 // @access  Private (Admin, HR)
 router.post('/candidates/:id/notes', auth, authorize('admin', 'hr'), idValidation, catchAsync(async (req, res) => {
-  const candidate = await Candidate.findById(req.params.id);
+  const candidate = await prisma.candidate.findUnique({ where: { id: req.params.id } });
 
-  if (!candidate) {
-    throw new NotFoundError('Candidate');
-  }
+  if (!candidate) throw new NotFoundError('Candidate');
+  if (!req.body.text) throw new BadRequestError('Note text is required');
 
-  if (!req.body.text) {
-    throw new BadRequestError('Note text is required');
-  }
-
-  candidate.notes.push({
-    author: req.user._id,
+  const newNote = {
     text: req.body.text,
-    type: req.body.type || 'general',
-    createdAt: new Date(),
+    authorId: req.user.id,
+    date: new Date().toISOString()
+  };
+
+  const updatedCandidate = await prisma.candidate.update({
+    where: { id: req.params.id },
+    data: {
+      notes: Array.isArray(candidate.notes) ? [...candidate.notes, newNote] : [newNote]
+    }
   });
 
-  await candidate.save();
-
-  const populatedCandidate = await Candidate.findById(candidate._id)
-    .populate('notes.author', 'email')
-    .lean();
-
-  created(res, populatedCandidate, 'Note added successfully');
+  created(res, updatedCandidate, 'Note added successfully');
 }));
 
 // @route   PUT /api/recruiting/candidates/:id/offer
 // @desc    Create/Update offer
 // @access  Private (Admin, HR)
 router.put('/candidates/:id/offer', auth, authorize('admin', 'hr'), idValidation, catchAsync(async (req, res) => {
-  const candidate = await Candidate.findById(req.params.id);
+  const candidate = await prisma.candidate.findUnique({ where: { id: req.params.id } });
 
-  if (!candidate) {
-    throw new NotFoundError('Candidate');
-  }
+  if (!candidate) throw new NotFoundError('Candidate');
 
-  const { salary, startDate, position, department, benefits, expiresAt, status, notes } = req.body;
+  const { salary, startDate, status } = req.body;
 
-  candidate.offer = {
-    ...candidate.offer,
-    salary,
-    startDate: startDate ? new Date(startDate) : candidate.offer?.startDate,
-    position,
-    department,
-    benefits,
-    expiresAt: expiresAt ? new Date(expiresAt) : candidate.offer?.expiresAt,
-    status: status || 'pending',
-    createdAt: candidate.offer?.createdAt || new Date(),
-    createdBy: req.user._id,
-    notes,
+  const data = {
+    offerDetails: {
+      salary: salary || '',
+      expectedStartDate: startDate ? new Date(startDate).toISOString() : '',
+      status: status || 'pending'
+    }
   };
 
-  // Update stage when offer is created
-  if (['pending', 'sent'].includes(status)) {
-    candidate.stage = 'offer';
-  }
+  if (['pending', 'sent'].includes(status)) data.stage = 'offered';
+  if (status === 'accepted') data.stage = 'hired';
 
-  // Handle offer acceptance
-  if (status === 'accepted') {
-    candidate.stage = 'hired';
-    candidate.hiredAt = new Date();
-  }
+  const updatedCandidate = await prisma.candidate.update({
+    where: { id: req.params.id },
+    data
+  });
 
-  await candidate.save();
-
-  success(res, candidate, 'Offer updated successfully');
+  success(res, updatedCandidate, 'Offer updated successfully');
 }));
 
 // @route   DELETE /api/recruiting/candidates/:id
 // @desc    Delete candidate
 // @access  Private (Admin)
 router.delete('/candidates/:id', auth, authorize('admin'), idValidation, catchAsync(async (req, res) => {
-  const candidate = await Candidate.findById(req.params.id);
-
-  if (!candidate) {
+  await prisma.candidate.delete({ where: { id: req.params.id } }).catch(() => {
     throw new NotFoundError('Candidate');
-  }
-
-  // Update job applicant count
-  await Job.findByIdAndUpdate(candidate.job, {
-    $inc: { applicantCount: -1 },
   });
-
-  await Candidate.findByIdAndDelete(req.params.id);
 
   success(res, null, 'Candidate deleted');
 }));

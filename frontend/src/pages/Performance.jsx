@@ -187,7 +187,7 @@ const Performance = () => {
                             ) : (
                                 <div className="grid gap-4">
                                     {goals.map(goal => (
-                                        <div key={goal._id} className="card p-6 hover:shadow-lg transition-shadow">
+                                        <div key={goal.id} className="card p-6 hover:shadow-lg transition-shadow">
                                             <div className="flex items-start justify-between gap-4">
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2 mb-2">
@@ -212,7 +212,7 @@ const Performance = () => {
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <button
-                                                        onClick={() => handleDeleteGoal(goal._id)}
+                                                        onClick={() => handleDeleteGoal(goal.id)}
                                                         className="p-2 text-gray-400 hover:text-red-500"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
@@ -237,7 +237,7 @@ const Performance = () => {
                                                     min="0"
                                                     max="100"
                                                     value={goal.progress || 0}
-                                                    onChange={(e) => handleUpdateProgress(goal._id, e.target.value)}
+                                                    onChange={(e) => handleUpdateProgress(goal.id, e.target.value)}
                                                     className="w-full mt-2 cursor-pointer"
                                                 />
                                             </div>
@@ -271,7 +271,7 @@ const Performance = () => {
                                         </thead>
                                         <tbody>
                                             {reviews.map(review => (
-                                                <tr key={review._id}>
+                                                <tr key={review.id}>
                                                     <td>
                                                         <div>
                                                             <p className="font-medium">{review.employee?.name}</p>
@@ -388,7 +388,7 @@ const Performance = () => {
                                     >
                                         <option value="">Self</option>
                                         {employees.map(emp => (
-                                            <option key={emp._id} value={emp._id}>{emp.name}</option>
+                                            <option key={emp.id} value={emp.id}>{emp.name}</option>
                                         ))}
                                     </select>
                                 </div>

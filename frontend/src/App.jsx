@@ -12,6 +12,7 @@ const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Employees = lazy(() => import('./pages/Employees'));
+const OrgChart = lazy(() => import('./pages/OrgChart'));
 const Leaves = lazy(() => import('./pages/Leaves'));
 const Attendance = lazy(() => import('./pages/Attendance'));
 const Recruiting = lazy(() => import('./pages/Recruiting'));
@@ -67,6 +68,14 @@ function App() {
                       element={
                         <ProtectedRoute roles={['admin', 'hr']}>
                           <Employees />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="org-chart"
+                      element={
+                        <ProtectedRoute roles={['admin', 'hr']}>
+                          <OrgChart />
                         </ProtectedRoute>
                       }
                     />

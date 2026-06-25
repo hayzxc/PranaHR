@@ -100,7 +100,7 @@ const Payroll = () => {
 
     const openEditModal = (payroll) => {
         setEditForm({
-            _id: payroll._id,
+            id: payroll.id,
             basicSalary: payroll.basicSalary || 0,
             earnings: {
                 overtime: payroll.earnings?.overtime || 0,
@@ -134,12 +134,12 @@ const Payroll = () => {
         e.preventDefault();
         setEditLoading(true);
         try {
-            const { _id, employeeName, ...updateData } = editForm;
+            const { id, employeeName, ...updateData } = editForm;
             await payrollAPI.update(_id, updateData);
             setShowEditModal(false);
             setEditForm(null);
-            if (selectedPayroll?._id === _id) {
-                const { data } = await payrollAPI.getById(_id);
+            if (selectedPayroll?.id === _id) {
+                const { data } = await payrollAPI.getById(id);
                 setSelectedPayroll(data.data);
             }
             fetchData();
@@ -287,7 +287,7 @@ const Payroll = () => {
                         <div>
                             <p className="text-sm text-gray-500">Pending Approval</p>
                             <p className="text-xl font-bold text-gray-800">
-                                {stats?.statusCounts?.find(s => s._id === 'pending')?.count || 0}
+                                {stats?.statusCounts?.find(s => s.id === 'pending')?.count || 0}
                             </p>
                         </div>
                         <div className="w-10 h-10 rounded-xl bg-yellow-100 flex items-center justify-center">
@@ -387,7 +387,7 @@ const Payroll = () => {
                             <tbody className="divide-y divide-gray-100">
                                 {payrolls.map((payroll, index) => (
                                     <tr
-                                        key={payroll._id}
+                                        key={payroll.id}
                                         className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}
                                     >
                                         <td className="px-6 py-4">
@@ -447,7 +447,7 @@ const Payroll = () => {
                                                 )}
                                                 {payroll.status === 'draft' && isAdmin && (
                                                     <button
-                                                        onClick={() => handleApprove(payroll._id)}
+                                                        onClick={() => handleApprove(payroll.id)}
                                                         className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
                                                         title="Approve"
                                                     >
@@ -456,7 +456,7 @@ const Payroll = () => {
                                                 )}
                                                 {payroll.status === 'approved' && isAdmin && (
                                                     <button
-                                                        onClick={() => handleMarkPaid(payroll._id)}
+                                                        onClick={() => handleMarkPaid(payroll.id)}
                                                         className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
                                                         title="Mark as Paid"
                                                     >
@@ -474,7 +474,7 @@ const Payroll = () => {
                                                     onClick={async (e) => {
                                                         e.stopPropagation();
                                                         try {
-                                                            const response = await payrollAPI.downloadSlip(payroll._id);
+                                                            const response = await payrollAPI.downloadSlip(payroll.id);
                                                             const blob = new Blob([response.data], { type: 'application/pdf' });
                                                             const url = window.URL.createObjectURL(blob);
                                                             const link = document.createElement('a');
@@ -657,7 +657,7 @@ const Payroll = () => {
                                     <button
                                         onClick={async () => {
                                             try {
-                                                const response = await payrollAPI.downloadSlip(selectedPayroll._id);
+                                                const response = await payrollAPI.downloadSlip(selectedPayroll.id);
                                                 const blob = new Blob([response.data], { type: 'application/pdf' });
                                                 const url = window.URL.createObjectURL(blob);
                                                 const link = document.createElement('a');

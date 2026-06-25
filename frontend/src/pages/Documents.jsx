@@ -127,7 +127,7 @@ const Documents = () => {
 
     const handleDownload = async (doc) => {
         try {
-            const response = await documentsAPI.download(doc._id);
+            const response = await documentsAPI.download(doc.id);
             const blob = new Blob([response.data], { type: doc.mimetype });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -320,7 +320,7 @@ const Documents = () => {
                     >
                         <option value="">All Employees</option>
                         {employees.map(emp => (
-                            <option key={emp._id} value={emp._id}>{emp.name}</option>
+                            <option key={emp.id} value={emp.id}>{emp.name}</option>
                         ))}
                     </select>
                 </div>
@@ -351,7 +351,7 @@ const Documents = () => {
                         const expiryStatus = getExpiryStatus(doc);
 
                         return (
-                            <div key={doc._id} className="card p-4 hover:shadow-lg transition-shadow">
+                            <div key={doc.id} className="card p-4 hover:shadow-lg transition-shadow">
                                 <div className="flex items-start gap-3">
                                     <div className={`w-12 h-12 rounded-xl bg-${categoryInfo.color}-100 flex items-center justify-center flex-shrink-0`}>
                                         <FileIcon className={`w-6 h-6 text-${categoryInfo.color}-600`} />
@@ -392,7 +392,7 @@ const Documents = () => {
                                     <div className="flex items-center gap-1">
                                         {!doc.isVerified && isAdmin && (
                                             <button
-                                                onClick={() => handleVerify(doc._id)}
+                                                onClick={() => handleVerify(doc.id)}
                                                 className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg"
                                                 title="Verify Document"
                                             >
@@ -417,7 +417,7 @@ const Documents = () => {
                                             <Download className="w-4 h-4" />
                                         </button>
                                         <button
-                                            onClick={() => handleDelete(doc._id)}
+                                            onClick={() => handleDelete(doc.id)}
                                             className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
                                             title="Delete"
                                         >
@@ -457,7 +457,7 @@ const Documents = () => {
                                 >
                                     <option value="">Select Employee</option>
                                     {employees.map(emp => (
-                                        <option key={emp._id} value={emp._id}>{emp.name} ({emp.employeeId})</option>
+                                        <option key={emp.id} value={emp.id}>{emp.name} ({emp.employeeId})</option>
                                     ))}
                                 </select>
                             </div>
@@ -655,7 +655,7 @@ const Documents = () => {
                                 {!selectedDocument.isVerified && isAdmin && (
                                     <button
                                         onClick={() => {
-                                            handleVerify(selectedDocument._id);
+                                            handleVerify(selectedDocument.id);
                                             setShowPreviewModal(false);
                                         }}
                                         className="btn btn-primary flex-1 flex items-center justify-center gap-2"

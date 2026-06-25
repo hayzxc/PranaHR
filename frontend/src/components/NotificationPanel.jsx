@@ -88,7 +88,7 @@ const NotificationPanel = ({ isOpen, onClose }) => {
 
     const handleNotificationClick = async (notification) => {
         if (!notification.isRead) {
-            await markAsRead(notification._id);
+            await markAsRead(notification.id);
         }
         if (notification.link) {
             navigate(notification.link);
@@ -264,7 +264,7 @@ const NotificationPanel = ({ isOpen, onClose }) => {
 
                         return (
                             <div
-                                key={notif._id}
+                                key={notif.id}
                                 onClick={() => handleNotificationClick(notif)}
                                 style={{
                                     display: 'flex',
@@ -352,8 +352,8 @@ const NotificationPanel = ({ isOpen, onClose }) => {
                                     className="notif-actions"
                                 >
                                     <button
-                                        onClick={(e) => handleDelete(e, notif._id)}
-                                        disabled={deletingId === notif._id}
+                                        onClick={(e) => handleDelete(e, notif.id)}
+                                        disabled={deletingId === notif.id}
                                         title="Delete"
                                         style={{
                                             display: 'flex',

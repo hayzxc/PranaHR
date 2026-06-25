@@ -15,8 +15,12 @@ import {
     X,
     Play,
     Filter,
-    ChevronDown
+    ChevronDown,
+    Paperclip,
+    Download
 } from 'lucide-react';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
 
 const Tasks = () => {
     const { canManageEmployees, user } = useAuth();
@@ -34,7 +38,8 @@ const Tasks = () => {
         assignedTo: '',
         dueDate: '',
         priority: 'medium',
-        category: ''
+        category: '',
+        file: null
     });
 
     const priorityOptions = [
@@ -97,13 +102,26 @@ const Tasks = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            const payload = {
-                ...formData,
-                dueDate: formData.dueDate || null
-            };
+            let payload;
+            if (formData.file) {
+                payload = new FormData();
+                payload.append('title', formData.title);
+                payload.append('description', formData.description || '');
+                payload.append('assignedTo', formData.assignedTo);
+                payload.append('dueDate', formData.dueDate || '');
+                payload.append('priority', formData.priority || 'medium');
+                payload.append('category', formData.category || '');
+                payload.append('file', formData.file);
+            } else {
+                payload = {
+                    ...formData,
+                    dueDate: formData.dueDate || null
+                };
+                delete payload.file; // Remove the null file property for JSON
+            }
 
             if (editingTask) {
-                await taskAPI.update(editingTask._id, payload);
+                await taskAPI.update(editingTask.id, payload);
             } else {
                 await taskAPI.create(payload);
             }
@@ -139,7 +157,7 @@ const Tasks = () => {
         setFormData({
             title: task.title,
             description: task.description || '',
-            assignedTo: task.assignedTo?._id || '',
+            assignedTo: task.assignedTo?.id || '',
             dueDate: task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : '',
             priority: task.priority,
             category: task.category || ''
@@ -150,7 +168,7 @@ const Tasks = () => {
     const closeModal = () => {
         setShowModal(false);
         setEditingTask(null);
-        setFormData({ title: '', description: '', assignedTo: '', dueDate: '', priority: 'medium', category: '' });
+        setFormData({ title: '', description: '', assignedTo: '', dueDate: '', priority: 'medium', category: '', file: null });
     };
 
     const getPriorityStyle = (priority) => {
@@ -185,7 +203,7 @@ const Tasks = () => {
                     <button
                         onClick={() => {
                             setEditingTask(null);
-                            setFormData({ title: '', description: '', assignedTo: '', dueDate: '', priority: 'medium', category: '' });
+                            setFormData({ title: '', description: '', assignedTo: '', dueDate: '', priority: 'medium', category: '', file: null });
                             setShowModal(true);
                         }}
                         className="btn btn-primary flex items-center gap-2"
@@ -259,7 +277,7 @@ const Tasks = () => {
                 <div className="space-y-3">
                     {tasks.map((task) => (
                         <div
-                            key={task._id}
+                            key={task.id}
                             className={`card hover:shadow-lg transition-shadow ${isOverdue(task) ? 'border-red-300 bg-red-50/50' : ''}`}
                         >
                             <div className="flex items-start justify-between gap-4">
@@ -293,6 +311,17 @@ const Tasks = () => {
                                         {task.category && (
                                             <span className="badge bg-surface-100 text-surface-600">{task.category}</span>
                                         )}
+                                        {task.attachmentUrl && (
+                                            <a 
+                                                href={`${API_BASE_URL}/${task.attachmentUrl}`} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer"
+                                                className="flex items-center gap-1 text-primary-600 hover:text-primary-700 transition-colors"
+                                            >
+                                                <Paperclip className="w-3 h-3" />
+                                                <span className="truncate max-w-[150px]">{task.attachmentName || 'Attachment'}</span>
+                                            </a>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -301,7 +330,7 @@ const Tasks = () => {
                                         <div className="flex gap-1">
                                             {task.status === 'pending' && (
                                                 <button
-                                                    onClick={() => handleStatusChange(task._id, 'in_progress')}
+                                                    onClick={() => handleStatusChange(task.id, 'in_progress')}
                                                     className="btn btn-secondary text-xs py-1 px-2"
                                                 >
                                                     Start
@@ -309,7 +338,7 @@ const Tasks = () => {
                                             )}
                                             {task.status === 'in_progress' && (
                                                 <button
-                                                    onClick={() => handleStatusChange(task._id, 'completed')}
+                                                    onClick={() => handleStatusChange(task.id, 'completed')}
                                                     className="btn btn-primary text-xs py-1 px-2"
                                                 >
                                                     Complete
@@ -322,7 +351,7 @@ const Tasks = () => {
                                         <>
                                             <select
                                                 value={task.status}
-                                                onChange={(e) => handleStatusChange(task._id, e.target.value)}
+                                                onChange={(e) => handleStatusChange(task.id, e.target.value)}
                                                 className="input text-xs py-1 px-2 w-auto"
                                             >
                                                 {statusOptions.map(s => (
@@ -336,7 +365,7 @@ const Tasks = () => {
                                                 <Edit2 className="w-4 h-4" />
                                             </button>
                                             <button
-                                                onClick={() => handleDelete(task._id)}
+                                                onClick={() => handleDelete(task.id)}
                                                 className="p-2 text-surface-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                             >
                                                 <Trash2 className="w-4 h-4" />
@@ -396,7 +425,7 @@ const Tasks = () => {
                                 >
                                     <option value="">Select Employee</option>
                                     {employees.map(emp => (
-                                        <option key={emp._id} value={emp._id}>
+                                        <option key={emp.id} value={emp.id}>
                                             {emp.name} - {emp.department}
                                         </option>
                                     ))}
@@ -435,6 +464,26 @@ const Tasks = () => {
                                     className="input"
                                     placeholder="e.g., Report, Meeting, Training..."
                                 />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-surface-700 mb-2">Attachment</label>
+                                <input
+                                    type="file"
+                                    onChange={(e) => setFormData({ ...formData, file: e.target.files[0] })}
+                                    className="block w-full text-sm text-surface-500
+                                        file:mr-4 file:py-2.5 file:px-4
+                                        file:rounded-xl file:border-0
+                                        file:text-sm file:font-semibold
+                                        file:bg-primary-50 file:text-primary-700
+                                        hover:file:bg-primary-100
+                                        transition-colors cursor-pointer"
+                                />
+                                {editingTask && editingTask.attachmentUrl && !formData.file && (
+                                    <p className="text-xs text-surface-400 mt-2 flex items-center gap-1">
+                                        <Paperclip className="w-3 h-3" />
+                                        Current: {editingTask.attachmentName}
+                                    </p>
+                                )}
                             </div>
                             <div className="flex justify-end gap-3 pt-4">
                                 <button

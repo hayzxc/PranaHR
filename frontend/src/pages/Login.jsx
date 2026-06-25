@@ -9,8 +9,8 @@ import { LogIn, Mail, Lock, Eye, EyeOff, UserPlus, Sparkles } from 'lucide-react
 const TYPEWRITER_WORDS = ['HR Management', 'Payroll', 'Attendance', 'Recruiting'];
 const FEATURES = ['Employee Management', 'Payroll System', 'Performance Reviews', 'Document Storage'];
 const DEMO_ACCOUNTS = [
-    { label: 'Admin', email: 'admin@sobathr.com', password: 'admin123', color: 'bg-accent-100 text-accent-600' },
-    { label: 'HR Staff', email: 'hr@sobathr.com', password: 'hr123456', color: 'bg-primary-100 text-primary-600' },
+    { label: 'Admin', email: 'admin@sobathr.com', password: 'password123', color: 'bg-accent-100 text-accent-600' },
+    { label: 'HR Staff', email: 'hr@sobathr.com', password: 'password123', color: 'bg-primary-100 text-primary-600' },
     { label: 'Employee', email: 'budi@pranahr.com', password: 'password123', color: 'bg-emerald-100 text-emerald-600' },
 ];
 

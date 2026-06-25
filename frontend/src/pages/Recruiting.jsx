@@ -57,7 +57,7 @@ const Recruiting = () => {
                 const { data } = await recruitingAPI.getJobs({ limit: 50 });
                 setJobs(data.data || []);
             } else if (selectedJob) {
-                const { data } = await recruitingAPI.getCandidates(selectedJob._id, { limit: 50 });
+                const { data } = await recruitingAPI.getCandidates(selectedJob.id, { limit: 50 });
                 setCandidates(data.data || []);
             }
         } catch (error) {
@@ -112,7 +112,7 @@ const Recruiting = () => {
         try {
             await recruitingAPI.updateCandidateStage(candidateId, stage);
             fetchData();
-            if (selectedCandidate?._id === candidateId) {
+            if (selectedCandidate?.id === candidateId) {
                 const { data } = await recruitingAPI.getCandidate(candidateId);
                 setSelectedCandidate(data.data);
             }
@@ -227,7 +227,7 @@ const Recruiting = () => {
                             ) : (
                                 <div className="grid gap-4">
                                     {jobs.map(job => (
-                                        <div key={job._id} className="card p-6 hover:shadow-lg transition-shadow">
+                                        <div key={job.id} className="card p-6 hover:shadow-lg transition-shadow">
                                             <div className="flex items-start justify-between gap-4">
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-3 mb-2">
@@ -268,7 +268,7 @@ const Recruiting = () => {
                                                     </button>
                                                     {job.status === 'draft' && (
                                                         <button
-                                                            onClick={() => handleUpdateJobStatus(job._id, 'open')}
+                                                            onClick={() => handleUpdateJobStatus(job.id, 'open')}
                                                             className="btn btn-primary text-sm"
                                                         >
                                                             Publish
@@ -276,7 +276,7 @@ const Recruiting = () => {
                                                     )}
                                                     {job.status === 'open' && (
                                                         <button
-                                                            onClick={() => handleUpdateJobStatus(job._id, 'closed')}
+                                                            onClick={() => handleUpdateJobStatus(job.id, 'closed')}
                                                             className="btn btn-secondary text-sm"
                                                         >
                                                             Close
@@ -284,7 +284,7 @@ const Recruiting = () => {
                                                     )}
                                                     {isAdmin && (
                                                         <button
-                                                            onClick={() => handleDeleteJob(job._id)}
+                                                            onClick={() => handleDeleteJob(job.id)}
                                                             className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
                                                         >
                                                             <Trash2 className="w-4 h-4" />
@@ -335,7 +335,7 @@ const Recruiting = () => {
                                                 <div className="space-y-2">
                                                     {candidates.filter(c => c.stage === stage).map(candidate => (
                                                         <div
-                                                            key={candidate._id}
+                                                            key={candidate.id}
                                                             onClick={() => setSelectedCandidate(candidate)}
                                                             className="card p-3 hover:shadow-md cursor-pointer transition-shadow"
                                                         >
@@ -530,7 +530,7 @@ const Recruiting = () => {
                                     {stages.map(stage => (
                                         <button
                                             key={stage}
-                                            onClick={() => handleUpdateCandidateStage(selectedCandidate._id, stage)}
+                                            onClick={() => handleUpdateCandidateStage(selectedCandidate.id, stage)}
                                             className={`px-3 py-1 rounded-lg text-sm capitalize transition-colors ${selectedCandidate.stage === stage
                                                 ? 'bg-primary-500 text-white'
                                                 : 'bg-gray-100 hover:bg-gray-200'
@@ -540,7 +540,7 @@ const Recruiting = () => {
                                         </button>
                                     ))}
                                     <button
-                                        onClick={() => handleUpdateCandidateStage(selectedCandidate._id, 'rejected')}
+                                        onClick={() => handleUpdateCandidateStage(selectedCandidate.id, 'rejected')}
                                         className="px-3 py-1 rounded-lg text-sm bg-red-100 text-red-600 hover:bg-red-200"
                                     >
                                         Reject

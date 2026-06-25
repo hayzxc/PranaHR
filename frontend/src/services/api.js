@@ -191,9 +191,19 @@ export const taskAPI = {
     getAll: (params) => api.get('/tasks', { params }),
     getMy: () => api.get('/tasks/my'),
     getById: (id) => api.get(`/tasks/${id}`),
-    create: (data) => api.post('/tasks', data),
+    create: (data) => {
+        if (data instanceof FormData) {
+            return api.post('/tasks', data, { headers: { 'Content-Type': 'multipart/form-data' } });
+        }
+        return api.post('/tasks', data);
+    },
     createBulk: (data) => api.post('/tasks/bulk', data),
-    update: (id, data) => api.put(`/tasks/${id}`, data),
+    update: (id, data) => {
+        if (data instanceof FormData) {
+            return api.put(`/tasks/${id}`, data, { headers: { 'Content-Type': 'multipart/form-data' } });
+        }
+        return api.put(`/tasks/${id}`, data);
+    },
     updateStatus: (id, data) => api.put(`/tasks/${id}/status`, data),
     delete: (id) => api.delete(`/tasks/${id}`),
     getStats: () => api.get('/tasks/stats/overview'),

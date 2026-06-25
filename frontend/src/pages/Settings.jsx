@@ -222,7 +222,7 @@ const Settings = () => {
                             <h4 className="font-medium mb-3">Holidays</h4>
                             <div className="space-y-2 mb-3">
                                 {settings?.holidays?.map(holiday => (
-                                    <div key={holiday._id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                    <div key={holiday.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                                         <div>
                                             <span className="font-medium">{holiday.name}</span>
                                             <span className="text-gray-500 ml-2">
@@ -230,7 +230,7 @@ const Settings = () => {
                                             </span>
                                         </div>
                                         <button
-                                            onClick={() => handleRemoveHoliday(holiday._id)}
+                                            onClick={() => handleRemoveHoliday(holiday.id)}
                                             className="text-red-500 hover:text-red-700"
                                         >
                                             <Trash2 className="w-4 h-4" />

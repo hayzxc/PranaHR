@@ -5,11 +5,7 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 const path = require('path');
 
-const connectDB = require('./config/db');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
-
-// Register models that are accessed via mongoose.model() in pre-save hooks
-require('./models/Counter');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -32,9 +28,6 @@ const app = express();
 
 // Trust proxy for rate limiting behind reverse proxy
 app.set('trust proxy', 1);
-
-// Connect to MongoDB
-connectDB();
 
 // Security middleware
 app.use(helmet({

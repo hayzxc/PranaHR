@@ -1,9 +1,10 @@
 /**
  * Notification Helper Utility
  * Creates notifications without duplicating code across routes
+ * PONYTAIL FIX: Prisma Integration & Employee Mapping
  */
 
-const Notification = require('../models/Notification');
+const prisma = require('../lib/prisma').default;
 
 /**
  * Create a single notification
@@ -17,48 +18,64 @@ const Notification = require('../models/Notification');
  * @returns {Promise<Object>} Created notification
  */
 const createNotification = async ({ recipient, type, title, message, link = null, relatedId = null }) => {
-    try {
-        const notification = await Notification.create({
-            recipient,
-            type,
-            title,
-            message,
-            link,
-            relatedId,
-        });
-        return notification;
-    } catch (error) {
-        // Log but don't throw - notifications should not break main operations
-        console.error('Failed to create notification:', error.message);
-        return null;
-    }
+  try {
+    const employee = await prisma.employee.findUnique({ where: { userId: recipient } });
+    if (!employee) return null;
+
+    const notification = await prisma.notification.create({
+      data: {
+        employeeId: employee.id,
+        type: type || 'system',
+        title,
+        message,
+        link: link || null,
+        isRead: false,
+      }
+    });
+    return notification;
+  } catch (error) {
+    console.error('Failed to create notification:', error.message);
+    return null;
+  }
 };
 
 /**
  * Create notifications for multiple recipients
  * @param {Array<string>} recipients - Array of User IDs
- * @param {Object} data - Notification data (type, title, message, link, relatedId)
+ * @param {Object} data - Notification data
  * @returns {Promise<Array>} Created notifications
  */
 const createBulkNotifications = async (recipients, { type, title, message, link = null, relatedId = null }) => {
-    try {
-        const notifications = recipients.map(recipient => ({
-            recipient,
-            type,
-            title,
-            message,
-            link,
-            relatedId,
-        }));
-        const result = await Notification.insertMany(notifications, { ordered: false });
-        return result;
-    } catch (error) {
-        console.error('Failed to create bulk notifications:', error.message);
-        return [];
-    }
+  try {
+    const employees = await prisma.employee.findMany({
+      where: { userId: { in: recipients } },
+      select: { id: true }
+    });
+
+    if (employees.length === 0) return [];
+
+    const notifications = employees.map(emp => ({
+      employeeId: emp.id,
+      type: type || 'system',
+      title,
+      message,
+      link: link || null,
+      isRead: false,
+    }));
+
+    // In Prisma, createMany is used for bulk inserts
+    const result = await prisma.notification.createMany({
+      data: notifications,
+      skipDuplicates: true
+    });
+    return result;
+  } catch (error) {
+    console.error('Failed to create bulk notifications:', error.message);
+    return [];
+  }
 };
 
 module.exports = {
-    createNotification,
-    createBulkNotifications,
+  createNotification,
+  createBulkNotifications,
 };

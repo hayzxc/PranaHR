@@ -29,6 +29,7 @@ const Employees = () => {
         department: 'Sertifikasi',
         position: '',
         salary: '',
+        managerId: '',
         password: 'password123'
     });
 
@@ -60,7 +61,7 @@ const Employees = () => {
         e.preventDefault();
         try {
             if (editingEmployee) {
-                await employeeAPI.update(editingEmployee._id, formData);
+                await employeeAPI.update(editingEmployee.id, formData);
             } else {
                 await employeeAPI.create(formData);
             }
@@ -81,6 +82,7 @@ const Employees = () => {
             department: emp.department,
             position: emp.position,
             salary: emp.salary,
+            managerId: emp.manager?.id || '',
             password: ''
         });
         setShowModal(true);
@@ -106,6 +108,7 @@ const Employees = () => {
             department: 'Sertifikasi',
             position: '',
             salary: '',
+            managerId: '',
             password: 'password123'
         });
     };
@@ -180,7 +183,7 @@ const Employees = () => {
                             </thead>
                             <tbody>
                                 {employees.map((emp) => (
-                                    <tr key={emp._id} className="border-b hover:bg-gray-50 transition-colors">
+                                    <tr key={emp.id} className="border-b hover:bg-gray-50 transition-colors">
                                         <td className="table-cell">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center">
@@ -210,7 +213,7 @@ const Employees = () => {
                                                     <Edit2 className="w-4 h-4" />
                                                 </button>
                                                 <button
-                                                    onClick={() => handleDelete(emp._id)}
+                                                    onClick={() => handleDelete(emp.id)}
                                                     className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                                 >
                                                     <Trash2 className="w-4 h-4" />
@@ -319,6 +322,22 @@ const Employees = () => {
                                         required
                                     />
                                 </div>
+                            </div>
+
+                            <div>
+                                <label className="label">Reports To (Manager)</label>
+                                <select
+                                    className="input"
+                                    value={formData.managerId}
+                                    onChange={(e) => setFormData({ ...formData, managerId: e.target.value })}
+                                >
+                                    <option value="">No Manager (Top Level)</option>
+                                    {employees
+                                        .filter(emp => !editingEmployee || emp.id !== editingEmployee.id)
+                                        .map(emp => (
+                                            <option key={emp.id} value={emp.id}>{emp.name} ({emp.position})</option>
+                                    ))}
+                                </select>
                             </div>
 
                             {!editingEmployee && (

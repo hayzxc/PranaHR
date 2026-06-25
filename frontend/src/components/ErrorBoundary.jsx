@@ -29,9 +29,14 @@ class ErrorBoundary extends Component {
                         <h2 className="text-xl font-bold text-surface-800 mb-2">
                             Something went wrong
                         </h2>
-                        <p className="text-surface-500 mb-6">
+                        <p className="text-surface-500 mb-4">
                             An unexpected error occurred. Please try again or contact support if the problem persists.
                         </p>
+                        <div className="text-left bg-red-50 p-4 rounded-xl overflow-auto text-xs text-red-800 mb-6 font-mono whitespace-pre-wrap max-h-64">
+                            {this.state.error?.toString()}
+                            <br/><br/>
+                            {this.state.error?.stack}
+                        </div>
                         <button
                             onClick={this.handleRetry}
                             className="btn btn-primary"

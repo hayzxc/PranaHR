@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: sobathr_postgres
+    environment:
+      POSTGRES_USER: sobathr
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: sobathr
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

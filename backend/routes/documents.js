@@ -1,6 +1,7 @@
 /**
  * Document Routes
  * Type-safe document management with file uploads
+ * PONYTAIL FIX: Prisma Integration & Hard Delete Cleanups
  */
 
 const express = require('express');
@@ -8,8 +9,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const Document = require('../models/Document');
-const Employee = require('../models/Employee');
+const prisma = require('../lib/prisma').default;
 const { auth, authorize } = require('../middleware/auth');
 const { idValidation, documentValidation, DOCUMENT_CATEGORIES } = require('../middleware/validate');
 const { catchAsync } = require('../middleware/errorHandler');
@@ -58,13 +58,11 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
 });
 
 /**
- * Helper to clean up file on error
+ * Helper to clean up file
  */
 const cleanupFile = (filepath) => {
   try {
@@ -82,38 +80,35 @@ const cleanupFile = (filepath) => {
 router.get('/stats', auth, authorize('admin', 'hr'), catchAsync(async (req, res) => {
   const thirtyDaysFromNow = new Date();
   thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+  const now = new Date();
 
-  const [categoryStats, verificationStats, expiringCount, expiredCount, totalCount, recentUploads] = await Promise.all([
-    Document.aggregate([
-      { $match: { isActive: true } },
-      { $group: { _id: '$category', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-    ]),
-    Document.aggregate([
-      { $match: { isActive: true } },
-      { $group: { _id: '$isVerified', count: { $sum: 1 } } },
-    ]),
-    Document.countDocuments({
-      isActive: true,
-      expiryDate: { $lte: thirtyDaysFromNow, $gte: new Date() },
-    }),
-    Document.countDocuments({
-      isActive: true,
-      expiryDate: { $lt: new Date() },
-    }),
-    Document.countDocuments({ isActive: true }),
-    Document.find({ isActive: true })
-      .populate('employee', 'name department')
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .lean(),
+  const [documents, expiringCount, expiredCount] = await Promise.all([
+    prisma.document.findMany({ include: { owner: { select: { name: true, department: true } } } }),
+    prisma.document.count({ where: { expiryDate: { lte: thirtyDaysFromNow, gte: now } } }),
+    prisma.document.count({ where: { expiryDate: { lt: now } } })
   ]);
 
+  const categoryStatsObj = {};
+  let verifiedCount = 0;
+  let unverifiedCount = 0;
+
+  documents.forEach(d => {
+    categoryStatsObj[d.category] = (categoryStatsObj[d.category] || 0) + 1;
+    if (d.isVerified) verifiedCount++;
+    else unverifiedCount++;
+  });
+
+  const categoryStats = Object.entries(categoryStatsObj)
+    .map(([id, count]) => ({ _id: id, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const recentUploads = documents.sort((a, b) => b.createdAt - a.createdAt).slice(0, 5);
+
   success(res, {
-    total: totalCount,
+    total: documents.length,
     byCategory: categoryStats,
-    verified: verificationStats.find(v => v._id === true)?.count || 0,
-    unverified: verificationStats.find(v => v._id === false)?.count || 0,
+    verified: verifiedCount,
+    unverified: unverifiedCount,
     expiringSoon: expiringCount,
     expired: expiredCount,
     recentUploads,
@@ -128,20 +123,17 @@ router.get('/expiring', auth, authorize('admin', 'hr'), catchAsync(async (req, r
   const futureDate = new Date();
   futureDate.setDate(futureDate.getDate() + days);
 
-  const documents = await Document.find({
-    isActive: true,
-    expiryDate: { $lte: futureDate, $gte: new Date() },
-  })
-    .populate('employee', 'name employeeId department email')
-    .sort({ expiryDate: 1 })
-    .lean();
+  const documents = await prisma.document.findMany({
+    where: { expiryDate: { lte: futureDate, gte: new Date() } },
+    include: { owner: { select: { name: true, employeeId: true, department: true, email: true } } },
+    orderBy: { expiryDate: 'asc' }
+  });
 
-  // Group by urgency
   const sevenDays = new Date();
   sevenDays.setDate(sevenDays.getDate() + 7);
 
-  const critical = documents.filter(d => new Date(d.expiryDate) <= sevenDays);
-  const warning = documents.filter(d => new Date(d.expiryDate) > sevenDays);
+  const critical = documents.filter(d => d.expiryDate <= sevenDays);
+  const warning = documents.filter(d => d.expiryDate > sevenDays);
 
   success(res, {
     documents,
@@ -157,35 +149,26 @@ router.get('/expiring', auth, authorize('admin', 'hr'), catchAsync(async (req, r
 // @desc    Get employee's own documents
 // @access  Private
 router.get('/my-documents', auth, catchAsync(async (req, res) => {
-  const employee = await Employee.findOne({ userId: req.user._id });
+  const employee = await prisma.employee.findUnique({ where: { userId: req.user.id } });
 
-  if (!employee) {
-    throw new NotFoundError('Employee profile');
-  }
+  if (!employee) throw new NotFoundError('Employee profile');
 
   const { category, verified } = req.query;
-  const query = {
-    employee: employee._id,
-    isActive: true,
-  };
+  const where = { ownerId: employee.id };
 
-  if (category && DOCUMENT_CATEGORIES.includes(category)) {
-    query.category = category;
-  }
-  if (verified !== undefined) {
-    query.isVerified = verified === 'true';
-  }
+  if (category && DOCUMENT_CATEGORIES.includes(category)) where.category = category;
+  if (verified !== undefined) where.isVerified = verified === 'true';
 
-  const documents = await Document.find(query)
-    .sort({ createdAt: -1 })
-    .lean();
+  const documents = await prisma.document.findMany({
+    where,
+    orderBy: { createdAt: 'desc' }
+  });
 
-  // Add summary
   const summary = {
     total: documents.length,
     verified: documents.filter(d => d.isVerified).length,
     expiringSoon: documents.filter(d => {
-      if (!d.expiryDate) {return false;}
+      if (!d.expiryDate) return false;
       const daysUntilExpiry = Math.ceil((new Date(d.expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
       return daysUntilExpiry > 0 && daysUntilExpiry <= 30;
     }).length,
@@ -206,45 +189,41 @@ router.get('/categories', auth, catchAsync(async (req, res) => {
 // @access  Private (Admin, HR)
 router.get('/', auth, authorize('admin', 'hr'), catchAsync(async (req, res) => {
   const { category, employee, verified, expiring, search, page = 1, limit = 20 } = req.query;
-  const query = { isActive: true };
+  const where = {};
 
-  if (category && DOCUMENT_CATEGORIES.includes(category)) {
-    query.category = category;
-  }
-  if (employee) {query.employee = employee;}
-  if (verified !== undefined) {query.isVerified = verified === 'true';}
+  if (category && DOCUMENT_CATEGORIES.includes(category)) where.category = category;
+  if (employee) where.ownerId = employee;
+  if (verified !== undefined) where.isVerified = verified === 'true';
 
-  // Filter for expiring documents (within 30 days)
   if (expiring === 'true') {
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-    query.expiryDate = { $lte: thirtyDaysFromNow, $gte: new Date() };
+    where.expiryDate = { lte: thirtyDaysFromNow, gte: new Date() };
   }
 
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
 
   let [total, documents] = await Promise.all([
-    Document.countDocuments(query),
-    Document.find(query)
-      .populate('employee', 'name employeeId department position')
-      .populate('uploadedBy', 'email')
-      .populate('verifiedBy', 'email')
-      .sort({ createdAt: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
+    prisma.document.count({ where }),
+    prisma.document.findMany({
+      where,
+      include: { owner: { select: { name: true, employeeId: true, department: true, position: true } } },
+      orderBy: { createdAt: 'desc' },
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum,
+    })
   ]);
 
-  // Search filter (post-query for text search)
   if (search) {
     const searchLower = search.toLowerCase();
     documents = documents.filter(doc =>
       doc.title?.toLowerCase().includes(searchLower) ||
-            doc.employee?.name?.toLowerCase().includes(searchLower) ||
-            doc.employee?.employeeId?.toLowerCase().includes(searchLower) ||
-            doc.category?.toLowerCase().includes(searchLower),
+      doc.owner?.name?.toLowerCase().includes(searchLower) ||
+      doc.owner?.employeeId?.toLowerCase().includes(searchLower) ||
+      doc.category?.toLowerCase().includes(searchLower)
     );
+    total = documents.length; // Approximate adjustment
   }
 
   paginated(res, documents, { total, page: pageNum, limit: limitNum });
@@ -254,19 +233,15 @@ router.get('/', auth, authorize('admin', 'hr'), catchAsync(async (req, res) => {
 // @desc    Get single document
 // @access  Private
 router.get('/:id', auth, idValidation, catchAsync(async (req, res) => {
-  const document = await Document.findById(req.params.id)
-    .populate('employee', 'name employeeId department position userId')
-    .populate('uploadedBy', 'email')
-    .populate('verifiedBy', 'email')
-    .lean();
+  const document = await prisma.document.findUnique({
+    where: { id: req.params.id },
+    include: { owner: { select: { userId: true, name: true, employeeId: true, department: true, position: true } } }
+  });
 
-  if (!document) {
-    throw new NotFoundError('Document');
-  }
+  if (!document) throw new NotFoundError('Document');
 
-  // Check access for employees
   if (req.user.role === 'employee') {
-    if (document.employee.userId.toString() !== req.user._id.toString()) {
+    if (!document.owner || document.owner.userId !== req.user.id) {
       throw new ForbiddenError('You can only view your own documents');
     }
   }
@@ -278,41 +253,33 @@ router.get('/:id', auth, idValidation, catchAsync(async (req, res) => {
 // @desc    Download document file
 // @access  Private
 router.get('/:id/download', auth, idValidation, catchAsync(async (req, res) => {
-  const document = await Document.findById(req.params.id);
+  const document = await prisma.document.findUnique({
+    where: { id: req.params.id },
+    include: { owner: { select: { userId: true } } }
+  });
 
-  if (!document) {
-    throw new NotFoundError('Document');
-  }
+  if (!document) throw new NotFoundError('Document');
 
-  // Check access for employees
   if (req.user.role === 'employee') {
-    const employee = await Employee.findOne({ userId: req.user._id });
-    if (!employee || document.employee.toString() !== employee._id.toString()) {
+    if (!document.owner || document.owner.userId !== req.user.id) {
       throw new ForbiddenError('You can only download your own documents');
     }
   }
 
-  const filePath = path.join(__dirname, '..', document.filepath);
+  const filePath = path.join(__dirname, '..', document.fileUrl);
 
   if (!fs.existsSync(filePath)) {
     throw new NotFoundError('File not found on server');
   }
 
-  // Log download
-  document.downloadCount = (document.downloadCount || 0) + 1;
-  document.lastDownloadedAt = new Date();
-  await document.save();
-
-  res.download(filePath, document.originalName);
+  res.download(filePath, document.fileName);
 }));
 
 // @route   POST /api/documents/upload
 // @desc    Upload document
 // @access  Private
 router.post('/upload', auth, upload.single('file'), catchAsync(async (req, res) => {
-  if (!req.file) {
-    throw new BadRequestError('No file uploaded');
-  }
+  if (!req.file) throw new BadRequestError('No file uploaded');
 
   const { employeeId, title, category, description, expiryDate } = req.body;
 
@@ -321,205 +288,136 @@ router.post('/upload', auth, upload.single('file'), catchAsync(async (req, res) 
     throw new BadRequestError('Employee ID and title are required');
   }
 
-  // Validate employee exists
-  const employee = await Employee.findById(employeeId);
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
   if (!employee) {
     cleanupFile(req.file.path);
     throw new NotFoundError('Employee');
   }
 
-  // Check permission for employee role
   if (req.user.role === 'employee') {
-    const userEmployee = await Employee.findOne({ userId: req.user._id });
-    if (!userEmployee || userEmployee._id.toString() !== employeeId) {
+    if (employee.userId !== req.user.id) {
       cleanupFile(req.file.path);
       throw new ForbiddenError('You can only upload documents for yourself');
     }
   }
 
-  // Validate category
   const validCategory = category && DOCUMENT_CATEGORIES.includes(category) ? category : 'other';
 
-  const document = new Document({
-    employee: employeeId,
-    title,
-    category: validCategory,
-    filename: req.file.filename,
-    originalName: req.file.originalname,
-    filepath: `uploads/documents/${req.file.filename}`,
-    filesize: req.file.size,
-    mimetype: req.file.mimetype,
-    description,
-    expiryDate: expiryDate || null,
-    uploadedBy: req.user._id,
+  const document = await prisma.document.create({
+    data: {
+      ownerId: employee.id,
+      title,
+      category: validCategory,
+      fileName: req.file.originalname,
+      fileUrl: `uploads/documents/${req.file.filename}`,
+      fileSize: req.file.size,
+      fileType: req.file.mimetype,
+      description: description || null,
+      expiryDate: expiryDate ? new Date(expiryDate) : null,
+      hasExpiry: !!expiryDate,
+      isVerified: false
+    },
+    include: { owner: { select: { name: true, employeeId: true, department: true } } }
   });
 
-  await document.save();
-
-  const populatedDocument = await Document.findById(document._id)
-    .populate('employee', 'name employeeId department')
-    .lean();
-
-  created(res, populatedDocument, 'Document uploaded successfully');
+  created(res, document, 'Document uploaded successfully');
 }));
 
 // @route   PUT /api/documents/:id
 // @desc    Update document metadata
 // @access  Private
 router.put('/:id', auth, idValidation, catchAsync(async (req, res) => {
-  const document = await Document.findById(req.params.id);
+  const document = await prisma.document.findUnique({
+    where: { id: req.params.id },
+    include: { owner: { select: { userId: true } } }
+  });
 
-  if (!document) {
-    throw new NotFoundError('Document');
-  }
+  if (!document) throw new NotFoundError('Document');
 
-  // Check permission for employee role
   if (req.user.role === 'employee') {
-    const employee = await Employee.findOne({ userId: req.user._id });
-    if (!employee || document.employee.toString() !== employee._id.toString()) {
+    if (!document.owner || document.owner.userId !== req.user.id) {
       throw new ForbiddenError('You can only update your own documents');
     }
   }
 
-  const allowedUpdates = ['title', 'category', 'description', 'expiryDate'];
+  const data = {};
+  if (req.body.title !== undefined) data.title = req.body.title;
+  if (req.body.description !== undefined) data.description = req.body.description;
+  if (req.body.category && DOCUMENT_CATEGORIES.includes(req.body.category)) data.category = req.body.category;
+  if (req.body.expiryDate !== undefined) {
+    data.expiryDate = req.body.expiryDate ? new Date(req.body.expiryDate) : null;
+    data.hasExpiry = !!req.body.expiryDate;
+  }
 
-  allowedUpdates.forEach(field => {
-    if (req.body[field] !== undefined) {
-      if (field === 'category' && !DOCUMENT_CATEGORIES.includes(req.body[field])) {
-        return; // Skip invalid category
-      }
-      document[field] = req.body[field];
-    }
+  const updatedDocument = await prisma.document.update({
+    where: { id: req.params.id },
+    data,
+    include: { owner: { select: { name: true, employeeId: true, department: true } } }
   });
 
-  await document.save();
-
-  const populatedDocument = await Document.findById(document._id)
-    .populate('employee', 'name employeeId department')
-    .lean();
-
-  success(res, populatedDocument, 'Document updated successfully');
+  success(res, updatedDocument, 'Document updated successfully');
 }));
 
 // @route   PUT /api/documents/:id/verify
 // @desc    Verify document
 // @access  Private (Admin, HR)
 router.put('/:id/verify', auth, authorize('admin', 'hr'), idValidation, catchAsync(async (req, res) => {
-  const document = await Document.findById(req.params.id);
+  const document = await prisma.document.findUnique({ where: { id: req.params.id } });
 
-  if (!document) {
-    throw new NotFoundError('Document');
-  }
+  if (!document) throw new NotFoundError('Document');
+  if (document.isVerified) throw new BadRequestError('Document is already verified');
 
-  if (document.isVerified) {
-    throw new BadRequestError('Document is already verified');
-  }
+  const updatedDocument = await prisma.document.update({
+    where: { id: req.params.id },
+    data: { isVerified: true },
+    include: { owner: { select: { name: true, employeeId: true, department: true } } }
+  });
 
-  document.isVerified = true;
-  document.verifiedBy = req.user._id;
-  document.verifiedAt = new Date();
-  document.verificationNotes = req.body.notes || null;
-
-  await document.save();
-
-  const populatedDocument = await Document.findById(document._id)
-    .populate('employee', 'name employeeId department')
-    .populate('verifiedBy', 'email')
-    .lean();
-
-  success(res, populatedDocument, 'Document verified successfully');
+  success(res, updatedDocument, 'Document verified successfully');
 }));
 
 // @route   PUT /api/documents/:id/unverify
 // @desc    Unverify document
 // @access  Private (Admin, HR)
 router.put('/:id/unverify', auth, authorize('admin', 'hr'), idValidation, catchAsync(async (req, res) => {
-  const document = await Document.findById(req.params.id);
+  const document = await prisma.document.findUnique({ where: { id: req.params.id } });
 
-  if (!document) {
-    throw new NotFoundError('Document');
-  }
+  if (!document) throw new NotFoundError('Document');
+  if (!document.isVerified) throw new BadRequestError('Document is not verified');
 
-  if (!document.isVerified) {
-    throw new BadRequestError('Document is not verified');
-  }
+  const updatedDocument = await prisma.document.update({
+    where: { id: req.params.id },
+    data: { isVerified: false },
+    include: { owner: { select: { name: true, employeeId: true, department: true } } }
+  });
 
-  document.isVerified = false;
-  document.verifiedBy = null;
-  document.verifiedAt = null;
-  document.verificationNotes = req.body.reason || null;
-
-  await document.save();
-
-  success(res, document, 'Document verification removed');
+  success(res, updatedDocument, 'Document verification removed');
 }));
 
 // @route   DELETE /api/documents/:id
-// @desc    Delete document (soft delete)
+// @desc    Delete document permanently
 // @access  Private
 router.delete('/:id', auth, idValidation, catchAsync(async (req, res) => {
-  const document = await Document.findById(req.params.id);
+  const document = await prisma.document.findUnique({
+    where: { id: req.params.id },
+    include: { owner: { select: { userId: true } } }
+  });
 
-  if (!document) {
-    throw new NotFoundError('Document');
-  }
+  if (!document) throw new NotFoundError('Document');
 
-  // Check permission
   if (req.user.role === 'employee') {
-    const employee = await Employee.findOne({ userId: req.user._id });
-    if (!employee || document.employee.toString() !== employee._id.toString()) {
+    if (!document.owner || document.owner.userId !== req.user.id) {
       throw new ForbiddenError('You can only delete your own documents');
     }
   }
 
-  // Soft delete
-  document.isActive = false;
-  document.deletedAt = new Date();
-  document.deletedBy = req.user._id;
-  await document.save();
-
-  success(res, null, 'Document deleted successfully');
-}));
-
-// @route   DELETE /api/documents/:id/permanent
-// @desc    Permanently delete document
-// @access  Private (Admin)
-router.delete('/:id/permanent', auth, authorize('admin'), idValidation, catchAsync(async (req, res) => {
-  const document = await Document.findById(req.params.id);
-
-  if (!document) {
-    throw new NotFoundError('Document');
-  }
-
   // Delete file from disk
-  const filePath = path.join(__dirname, '..', document.filepath);
+  const filePath = path.join(__dirname, '..', document.fileUrl);
   cleanupFile(filePath);
 
-  await Document.findByIdAndDelete(req.params.id);
+  await prisma.document.delete({ where: { id: req.params.id } });
 
-  success(res, null, 'Document permanently deleted');
-}));
-
-// @route   POST /api/documents/:id/restore
-// @desc    Restore soft-deleted document
-// @access  Private (Admin, HR)
-router.post('/:id/restore', auth, authorize('admin', 'hr'), idValidation, catchAsync(async (req, res) => {
-  const document = await Document.findById(req.params.id);
-
-  if (!document) {
-    throw new NotFoundError('Document');
-  }
-
-  if (document.isActive) {
-    throw new BadRequestError('Document is not deleted');
-  }
-
-  document.isActive = true;
-  document.deletedAt = null;
-  document.deletedBy = null;
-  await document.save();
-
-  success(res, document, 'Document restored successfully');
+  success(res, null, 'Document deleted successfully');
 }));
 
 module.exports = router;

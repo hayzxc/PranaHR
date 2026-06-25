@@ -52,7 +52,7 @@ export const NotificationProvider = ({ children }) => {
         try {
             await notificationAPI.markAsRead(id);
             setNotifications(prev =>
-                prev.map(n => n._id === id ? { ...n, isRead: true } : n)
+                prev.map(n => n.id === id ? { ...n, isRead: true } : n)
             );
             setUnreadCount(prev => Math.max(0, prev - 1));
         } catch (err) {
@@ -76,9 +76,9 @@ export const NotificationProvider = ({ children }) => {
     // Delete a notification
     const deleteNotification = useCallback(async (id) => {
         try {
-            const notif = notifications.find(n => n._id === id);
+            const notif = notifications.find(n => n.id === id);
             await notificationAPI.delete(id);
-            setNotifications(prev => prev.filter(n => n._id !== id));
+            setNotifications(prev => prev.filter(n => n.id !== id));
             if (notif && !notif.isRead) {
                 setUnreadCount(prev => Math.max(0, prev - 1));
             }

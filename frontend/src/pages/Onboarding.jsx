@@ -76,7 +76,7 @@ const Onboarding = () => {
         try {
             await onboardingAPI.updateTask(onboardingId, taskId, { completed: !completed });
             // Refresh selected onboarding
-            if (selectedOnboarding?._id === onboardingId) {
+            if (selectedOnboarding?.id === onboardingId) {
                 const { data } = await onboardingAPI.getById(onboardingId);
                 setSelectedOnboarding(data.data);
             }
@@ -93,7 +93,7 @@ const Onboarding = () => {
         }
         try {
             await onboardingAPI.delete(onboardingId);
-            if (selectedOnboarding?._id === onboardingId) {
+            if (selectedOnboarding?.id === onboardingId) {
                 setSelectedOnboarding(null);
             }
             fetchData();
@@ -186,7 +186,7 @@ const Onboarding = () => {
                 <div className="grid gap-4">
                     {onboardings.map(onboarding => (
                         <div
-                            key={onboarding._id}
+                            key={onboarding.id}
                             className="card p-6 hover:shadow-lg transition-shadow cursor-pointer"
                             onClick={() => setSelectedOnboarding(onboarding)}
                         >
@@ -209,7 +209,7 @@ const Onboarding = () => {
                                         {onboarding.status?.replace('-', ' ')}
                                     </span>
                                     <button
-                                        onClick={(e) => handleDelete(e, onboarding._id)}
+                                        onClick={(e) => handleDelete(e, onboarding.id)}
                                         className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                         title="Delete onboarding"
                                     >
@@ -265,7 +265,7 @@ const Onboarding = () => {
                                 >
                                     <option value="">Select an employee...</option>
                                     {employees.map(emp => (
-                                        <option key={emp._id} value={emp._id}>
+                                        <option key={emp.id} value={emp.id}>
                                             {emp.name} - {emp.department}
                                         </option>
                                     ))}
@@ -290,7 +290,7 @@ const Onboarding = () => {
                                 >
                                     <option value="">No mentor</option>
                                     {employees.map(emp => (
-                                        <option key={emp._id} value={emp._id}>{emp.name}</option>
+                                        <option key={emp.id} value={emp.id}>{emp.name}</option>
                                     ))}
                                 </select>
                             </div>
@@ -324,7 +324,7 @@ const Onboarding = () => {
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={(e) => handleDelete(e, selectedOnboarding._id)}
+                                    onClick={(e) => handleDelete(e, selectedOnboarding.id)}
                                     className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1.5"
                                 >
                                     <Trash2 className="w-4 h-4" />
@@ -359,12 +359,12 @@ const Onboarding = () => {
                                 <div className="space-y-2">
                                     {selectedOnboarding.tasks?.map(task => (
                                         <div
-                                            key={task._id}
+                                            key={task.id}
                                             className={`flex items-center gap-3 p-3 rounded-lg border ${task.completed ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'
                                                 }`}
                                         >
                                             <button
-                                                onClick={() => handleTaskToggle(selectedOnboarding._id, task._id, task.completed)}
+                                                onClick={() => handleTaskToggle(selectedOnboarding.id, task.id, task.completed)}
                                                 className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${task.completed
                                                     ? 'bg-green-500 border-green-500 text-white'
                                                     : 'border-gray-300 hover:border-primary-500'

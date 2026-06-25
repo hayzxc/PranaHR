@@ -193,10 +193,10 @@ const Attendance = () => {
             {canManageEmployees && summary && (
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     {summary.summary?.map((stat, index) => (
-                        <div key={stat._id} className="stat-card">
-                            {getStatusIcon(stat._id)}
+                        <div key={stat.id} className="stat-card">
+                            {getStatusIcon(stat.id)}
                             <div>
-                                <p className="text-gray-500 text-sm capitalize">{stat._id || 'Pending'}</p>
+                                <p className="text-gray-500 text-sm capitalize">{stat.id || 'Pending'}</p>
                                 <p className="text-2xl font-bold text-gray-800">{stat.count}</p>
                                 <p className="text-xs text-gray-400">
                                     Avg: {stat.avgHours?.toFixed(1) || 0} hrs
@@ -259,17 +259,17 @@ const Attendance = () => {
                             </thead>
                             <tbody>
                                 {attendance.map((record) => (
-                                    <tr key={record._id} className="border-b hover:bg-gray-50 transition-colors">
+                                    <tr key={record.id} className="border-b hover:bg-gray-50 transition-colors">
                                         <td className="table-cell font-medium">{formatDate(record.date)}</td>
                                         {canManageEmployees && (
                                             <td className="table-cell">
                                                 <div className="flex items-center gap-2">
                                                     <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center">
                                                         <span className="text-primary-600 font-semibold text-sm">
-                                                            {record.employeeId?.name?.[0]?.toUpperCase()}
+                                                            {record.employee?.name?.[0]?.toUpperCase()}
                                                         </span>
                                                     </div>
-                                                    <span>{record.employeeId?.name}</span>
+                                                    <span>{record.employee?.name}</span>
                                                 </div>
                                             </td>
                                         )}

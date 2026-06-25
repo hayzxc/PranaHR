@@ -1,6 +1,5 @@
 const express = require('express');
-const Employee = require('../models/Employee');
-const User = require('../models/User');
+const prisma = require('../lib/prisma').default;
 const { auth, authorize } = require('../middleware/auth');
 const {
   employeeCreateValidation,
@@ -12,6 +11,7 @@ const {
 const { catchAsync } = require('../middleware/errorHandler');
 const { success, created, paginated } = require('../utils/response');
 const { NotFoundError, ConflictError, ForbiddenError } = require('../utils/errors');
+const bcrypt = require('bcryptjs');
 
 const router = express.Router();
 
@@ -20,23 +20,30 @@ const router = express.Router();
 // @access  Private (HR, Admin)
 // NOTE: This route must be before /:id to avoid conflict
 router.get('/stats/summary', auth, authorize('hr', 'admin'), catchAsync(async (req, res) => {
-  const stats = await Employee.aggregate([
-    { $match: { status: 'active' } },
-    {
-      $group: {
-        _id: '$department',
-        count: { $sum: 1 },
-        avgSalary: { $avg: '$salary' },
-      },
-    },
-    { $sort: { count: -1 } },
-  ]);
+  const activeEmployees = await prisma.employee.findMany({
+    where: { status: 'active' },
+    select: { department: true, salary: true },
+  });
 
-  const totalEmployees = await Employee.countDocuments({ status: 'active' });
-  const departments = await Employee.distinct('department');
+  const departmentStats = activeEmployees.reduce((acc, emp) => {
+    if (!acc[emp.department]) {
+      acc[emp.department] = { count: 0, totalSalary: 0 };
+    }
+    acc[emp.department].count += 1;
+    acc[emp.department].totalSalary += emp.salary;
+    return acc;
+  }, {});
+
+  const stats = Object.entries(departmentStats).map(([dept, data]) => ({
+    _id: dept,
+    count: data.count,
+    avgSalary: data.totalSalary / data.count,
+  })).sort((a, b) => b.count - a.count);
+
+  const departments = Object.keys(departmentStats);
 
   success(res, {
-    totalEmployees,
+    totalEmployees: activeEmployees.length,
     departments: departments.length,
     byDepartment: stats,
   });
@@ -57,23 +64,22 @@ router.get('/', auth, authorize('hr', 'admin'), searchValidation, catchAsync(asy
   } = req.query;
 
   // Build query
-  const query = {};
+  const where = {};
 
   if (department && DEPARTMENTS.includes(department)) {
-    query.department = department;
+    where.department = department;
   }
 
   if (status) {
-    query.status = status;
+    where.status = status;
   }
 
   if (search) {
-    const searchRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    query.$or = [
-      { name: searchRegex },
-      { email: searchRegex },
-      { employeeId: searchRegex },
-      { position: searchRegex },
+    where.OR = [
+      { name: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } },
+      { employeeId: { contains: search, mode: 'insensitive' } },
+      { position: { contains: search, mode: 'insensitive' } },
     ];
   }
 
@@ -82,19 +88,19 @@ router.get('/', auth, authorize('hr', 'admin'), searchValidation, catchAsync(asy
   const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
   const skip = (pageNum - 1) * limitNum;
 
-  // Build sort
-  const sortOrder = order === 'asc' ? 1 : -1;
-  const sortObj = { [sort]: sortOrder };
-
   // Execute queries
   const [total, employees] = await Promise.all([
-    Employee.countDocuments(query),
-    Employee.find(query)
-      .populate('userId', 'email role isActive')
-      .sort(sortObj)
-      .skip(skip)
-      .limit(limitNum)
-      .lean(),
+    prisma.employee.count({ where }),
+    prisma.employee.findMany({
+      where,
+      include: {
+        user: { select: { email: true, role: true, isActive: true } },
+        manager: { select: { id: true, name: true } }
+      },
+      orderBy: { [sort]: order === 'asc' ? 'asc' : 'desc' },
+      skip,
+      take: limitNum,
+    }),
   ]);
 
   paginated(res, employees, {
@@ -108,17 +114,20 @@ router.get('/', auth, authorize('hr', 'admin'), searchValidation, catchAsync(asy
 // @desc    Get employee by ID
 // @access  Private
 router.get('/:id', auth, idValidation, catchAsync(async (req, res) => {
-  const employee = await Employee.findById(req.params.id)
-    .populate('userId', 'email role isActive')
-    .lean();
+  const employee = await prisma.employee.findUnique({
+    where: { id: req.params.id },
+    include: {
+      user: { select: { id: true, email: true, role: true, isActive: true } },
+      manager: { select: { id: true, name: true } }
+    }
+  });
 
   if (!employee) {
     throw new NotFoundError('Employee');
   }
 
   // Only allow access to own profile for regular employees
-  if (req.user.role === 'employee' &&
-        employee.userId._id.toString() !== req.user._id.toString()) {
+  if (req.user.role === 'employee' && employee.userId !== req.user.id) {
     throw new ForbiddenError('You can only view your own profile');
   }
 
@@ -137,66 +146,72 @@ router.post('/', auth, authorize('hr', 'admin'), employeeCreateValidation, catch
   const { email, password, role, ...employeeData } = req.body;
 
   // Check if email exists
-  const existingUser = await User.findOne({ email: email.toLowerCase() });
+  const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
   if (existingUser) {
     throw new ConflictError('Email already in use');
   }
 
   // Check if employeeId exists (if provided)
   if (employeeData.employeeId) {
-    const existingEmployee = await Employee.findOne({ employeeId: employeeData.employeeId });
+    const existingEmployee = await prisma.employee.findUnique({ where: { employeeId: employeeData.employeeId } });
     if (existingEmployee) {
       throw new ConflictError('Employee ID already in use');
     }
+  } else {
+    // Generate employee ID if not provided
+    const count = await prisma.employee.count();
+    employeeData.employeeId = `EMP${String(count + 1).padStart(5, '0')}`;
   }
 
   // Create user account
   const isDefaultPassword = !password;
-  const user = new User({
-    email: email.toLowerCase(),
-    password: password || 'Password123!', // Default password with requirements
-    role: role || 'employee',
-  });
-  await user.save();
-
+  const salt = await bcrypt.genSalt(12);
+  const hashedPassword = await bcrypt.hash(password || 'Password123!', salt);
+  
   if (isDefaultPassword) {
     console.warn(`⚠️  Employee created with default password for ${email}. Please force a password reset.`);
   }
 
-  // Generate employee ID if not provided (atomic counter — race-condition safe)
-  if (!employeeData.employeeId) {
-    const Counter = require('../models/Counter');
-    const seq = await Counter.getNextSequence('employeeId');
-    employeeData.employeeId = `EMP${String(seq).padStart(5, '0')}`;
-  }
-
-  // Create employee profile
-  const employee = new Employee({
-    userId: user._id,
-    email: email.toLowerCase(),
-    ...employeeData,
+  const user = await prisma.user.create({
+    data: {
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      role: role || 'employee',
+      employee: {
+        create: {
+          email: email.toLowerCase(),
+          ...employeeData,
+          department: employeeData.department || 'Teknis dan IT',
+          position: employeeData.position || 'Employee',
+          salary: employeeData.salary || 0,
+        }
+      }
+    },
+    include: {
+      employee: {
+        include: {
+          user: { select: { email: true, role: true, isActive: true } },
+          manager: { select: { id: true, name: true } }
+        }
+      }
+    }
   });
-  await employee.save();
 
-  const populatedEmployee = await Employee.findById(employee._id)
-    .populate('userId', 'email role isActive')
-    .lean();
-
-  created(res, populatedEmployee, 'Employee created successfully');
+  created(res, user.employee, 'Employee created successfully');
 }));
 
 // @route   PUT /api/employees/:id
 // @desc    Update employee
 // @access  Private (HR, Admin, or Self)
 router.put('/:id', auth, idValidation, employeeUpdateValidation, catchAsync(async (req, res) => {
-  const employee = await Employee.findById(req.params.id);
+  const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
 
   if (!employee) {
     throw new NotFoundError('Employee');
   }
 
   // Check permissions
-  const isOwnProfile = employee.userId.toString() === req.user._id.toString();
+  const isOwnProfile = employee.userId === req.user.id;
   const isHROrAdmin = ['hr', 'admin'].includes(req.user.role);
 
   if (!isOwnProfile && !isHROrAdmin) {
@@ -208,31 +223,41 @@ router.put('/:id', auth, idValidation, employeeUpdateValidation, catchAsync(asyn
 
   // Restrict certain field updates for regular employees
   if (!isHROrAdmin) {
-    const restrictedFields = ['salary', 'department', 'position', 'status', 'employeeId', 'hireDate'];
+    const restrictedFields = ['salary', 'department', 'position', 'status', 'employeeId', 'hireDate', 'managerId'];
     restrictedFields.forEach(field => delete updateData[field]);
   }
 
   // Check for duplicate email if updating, and sync to User collection
   if (updateData.email && updateData.email !== employee.email) {
     const normalizedEmail = updateData.email.toLowerCase();
-    const existingUser = await User.findOne({
-      email: normalizedEmail,
-      _id: { $ne: employee.userId },
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        email: normalizedEmail,
+        id: { not: employee.userId },
+      }
     });
+    
     if (existingUser) {
       throw new ConflictError('Email already in use');
     }
+    
     updateData.email = normalizedEmail;
 
     // CRITICAL FIX: Sync email change to User collection to prevent login de-sync
-    await User.findByIdAndUpdate(employee.userId, { email: normalizedEmail });
+    await prisma.user.update({
+      where: { id: employee.userId },
+      data: { email: normalizedEmail }
+    });
   }
 
-  const updatedEmployee = await Employee.findByIdAndUpdate(
-    req.params.id,
-    { $set: updateData },
-    { new: true, runValidators: true },
-  ).populate('userId', 'email role isActive').lean();
+  const updatedEmployee = await prisma.employee.update({
+    where: { id: req.params.id },
+    data: updateData,
+    include: {
+      user: { select: { email: true, role: true, isActive: true } },
+      manager: { select: { id: true, name: true } }
+    }
+  });
 
   success(res, updatedEmployee, 'Employee updated successfully');
 }));
@@ -241,19 +266,22 @@ router.put('/:id', auth, idValidation, employeeUpdateValidation, catchAsync(asyn
 // @desc    Delete (terminate) employee
 // @access  Private (Admin only)
 router.delete('/:id', auth, authorize('admin'), idValidation, catchAsync(async (req, res) => {
-  const employee = await Employee.findById(req.params.id);
+  const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
 
   if (!employee) {
     throw new NotFoundError('Employee');
   }
 
   // Soft delete - deactivate user and terminate employee
-  await Promise.all([
-    User.findByIdAndUpdate(employee.userId, { isActive: false }),
-    Employee.findByIdAndUpdate(req.params.id, {
-      status: 'terminated',
-      terminationDate: new Date(),
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: employee.userId },
+      data: { isActive: false }
     }),
+    prisma.employee.update({
+      where: { id: req.params.id },
+      data: { status: 'terminated' }
+    })
   ]);
 
   success(res, null, 'Employee terminated successfully');

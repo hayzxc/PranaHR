@@ -64,7 +64,7 @@ const Announcements = () => {
             };
 
             if (editingAnnouncement) {
-                await announcementAPI.update(editingAnnouncement._id, payload);
+                await announcementAPI.update(editingAnnouncement.id, payload);
             } else {
                 await announcementAPI.create(payload);
             }
@@ -175,7 +175,7 @@ const Announcements = () => {
 
                         return (
                             <div
-                                key={announcement._id}
+                                key={announcement.id}
                                 className={`card hover:shadow-lg transition-shadow ${isExpired ? 'opacity-60' : ''}`}
                             >
                                 <div className="flex items-start justify-between gap-4">
@@ -224,7 +224,7 @@ const Announcements = () => {
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <button
-                                            onClick={() => handleTogglePin(announcement._id)}
+                                            onClick={() => handleTogglePin(announcement.id)}
                                             className="p-2 text-surface-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
                                             title={announcement.isPinned ? 'Unpin' : 'Pin'}
                                         >
@@ -237,7 +237,7 @@ const Announcements = () => {
                                             <Edit2 className="w-4 h-4" />
                                         </button>
                                         <button
-                                            onClick={() => handleDelete(announcement._id)}
+                                            onClick={() => handleDelete(announcement.id)}
                                             className="p-2 text-surface-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                         >
                                             <Trash2 className="w-4 h-4" />

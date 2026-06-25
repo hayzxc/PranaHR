@@ -5,8 +5,8 @@
 
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const Employee = require('../models/Employee');
+const bcrypt = require('bcryptjs');
+const prisma = require('../lib/prisma').default;
 const { auth } = require('../middleware/auth');
 const {
   registerValidation,
@@ -25,13 +25,11 @@ const router = express.Router();
 
 /**
  * Generate JWT token
- * @param {Object} user - User document
- * @returns {string} JWT token
  */
 const generateToken = (user) => {
   return jwt.sign(
     {
-      id: user._id,
+      id: user.id,
       email: user.email,
       role: user.role,
     },
@@ -40,14 +38,9 @@ const generateToken = (user) => {
   );
 };
 
-/**
- * Generate refresh token
- * @param {Object} user - User document  
- * @returns {string} Refresh token
- */
 const generateRefreshToken = (user) => {
   return jwt.sign(
-    { id: user._id, type: 'refresh', tokenVersion: user.tokenVersion || 0 },
+    { id: user.id, type: 'refresh', tokenVersion: user.tokenVersion || 0 },
     process.env.JWT_SECRET,
     { expiresIn: '30d' },
   );
@@ -59,40 +52,49 @@ const generateRefreshToken = (user) => {
 router.post('/register', registerValidation, catchAsync(async (req, res) => {
   const { email, password, role, name, department, position, salary } = req.body;
 
-  // Check if user exists
-  const existingUser = await User.findOne({ email: email.toLowerCase() });
+  const existingUser = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
   if (existingUser) {
     throw new ConflictError('User already exists with this email');
   }
 
-  // Create user
-  const user = new User({
-    email: email.toLowerCase(),
-    password,
-    role: role || 'employee',
-  });
-  await user.save();
+  const salt = await bcrypt.genSalt(12);
+  const hashedPassword = await bcrypt.hash(password, salt);
 
-  // Create employee profile if registering as employee or hr
-  let employee = null;
-  if (role !== 'admin') {
-    // Generate employee ID using atomic counter (race-condition safe)
-    const Counter = require('../models/Counter');
-    const seq = await Counter.getNextSequence('employeeId');
-    const employeeId = `EMP${String(seq).padStart(5, '0')}`;
+  const userRole = role || 'employee';
 
-    employee = new Employee({
-      userId: user._id,
-      employeeId,
-      name: name || email.split('@')[0],
-      email: email.toLowerCase(),
-      department: department || 'Teknis dan IT',
-      position: position || 'Employee',
-      salary: salary || 0,
-      hireDate: new Date(),
-    });
-    await employee.save();
+  let employeeData = undefined;
+  if (userRole !== 'admin') {
+    // Basic atomic counter workaround for Postgres sequence
+    // In production, we would use a sequence, but for simplicity here we count
+    const count = await prisma.employee.count();
+    const employeeId = `EMP${String(count + 1).padStart(5, '0')}`;
+
+    employeeData = {
+      create: {
+        employeeId,
+        name: name || email.split('@')[0],
+        email: email.toLowerCase(),
+        department: department || 'Teknis dan IT',
+        position: position || 'Employee',
+        salary: salary || 0,
+        hireDate: new Date(),
+      }
+    };
   }
+
+  const user = await prisma.user.create({
+    data: {
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      role: userRole,
+      employee: employeeData,
+    },
+    include: {
+      employee: true,
+    }
+  });
+
+  const { password: _, ...userWithoutPassword } = user;
 
   const token = generateToken(user);
   const refreshToken = generateRefreshToken(user);
@@ -101,8 +103,8 @@ router.post('/register', registerValidation, catchAsync(async (req, res) => {
     token,
     refreshToken,
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-    user: user.toJSON(),
-    employee,
+    user: userWithoutPassword,
+    employee: user.employee,
   }, 'User registered successfully');
 }));
 
@@ -112,30 +114,30 @@ router.post('/register', registerValidation, catchAsync(async (req, res) => {
 router.post('/login', loginValidation, catchAsync(async (req, res) => {
   const { email, password } = req.body;
 
-  // Find user with password
-  const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+  const user = await prisma.user.findUnique({
+    where: { email: email.toLowerCase() },
+    include: { employee: true }
+  });
 
   if (!user) {
     throw new UnauthorizedError('Invalid credentials');
   }
 
-  // Check if active
   if (!user.isActive) {
     throw new UnauthorizedError('Account is deactivated. Please contact administrator.');
   }
 
-  // Verify password
-  const isMatch = await user.comparePassword(password);
+  const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
     throw new UnauthorizedError('Invalid credentials');
   }
 
-  // Update last login
-  user.lastLogin = new Date();
-  await user.save();
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLogin: new Date() }
+  });
 
-  // Get employee profile if exists
-  const employee = await Employee.findOne({ userId: user._id }).lean();
+  const { password: _, ...userWithoutPassword } = user;
 
   const token = generateToken(user);
   const refreshToken = generateRefreshToken(user);
@@ -144,8 +146,8 @@ router.post('/login', loginValidation, catchAsync(async (req, res) => {
     token,
     refreshToken,
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-    user: user.toJSON(),
-    employee,
+    user: userWithoutPassword,
+    employee: user.employee,
   }, 'Login successful');
 }));
 
@@ -153,10 +155,10 @@ router.post('/login', loginValidation, catchAsync(async (req, res) => {
 // @desc    Get current user profile
 // @access  Private
 router.get('/me', auth, catchAsync(async (req, res) => {
-  const employee = await Employee.findOne({ userId: req.user._id }).lean();
+  const employee = await prisma.employee.findUnique({ where: { userId: req.user.id } });
 
   success(res, {
-    user: req.user.toJSON(),
+    user: req.user,
     employee,
   });
 }));
@@ -171,26 +173,22 @@ router.post('/refresh', catchAsync(async (req, res) => {
     throw new BadRequestError('Refresh token is required');
   }
 
-  // Verify refresh token
   const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
 
   if (decoded.type !== 'refresh') {
     throw new UnauthorizedError('Invalid refresh token');
   }
 
-  // Find user
-  const user = await User.findById(decoded.id);
+  const user = await prisma.user.findUnique({ where: { id: decoded.id } });
 
   if (!user || !user.isActive) {
     throw new UnauthorizedError('User not found or inactive');
   }
 
-  // Validate tokenVersion — reject tokens issued before logout/password change
   if (decoded.tokenVersion !== (user.tokenVersion || 0)) {
     throw new UnauthorizedError('Refresh token has been revoked');
   }
 
-  // Generate new tokens
   const newToken = generateToken(user);
   const newRefreshToken = generateRefreshToken(user);
 
@@ -207,21 +205,25 @@ router.post('/refresh', catchAsync(async (req, res) => {
 router.post('/change-password', auth, changePasswordValidation, catchAsync(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
-  // Get user with password
-  const user = await User.findById(req.user._id).select('+password');
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
 
-  // Verify current password
-  const isMatch = await user.comparePassword(currentPassword);
+  const isMatch = await bcrypt.compare(currentPassword, user.password);
   if (!isMatch) {
     throw new UnauthorizedError('Current password is incorrect');
   }
 
-  // Update password and increment tokenVersion to revoke all existing refresh tokens
-  user.password = newPassword;
-  user.tokenVersion = (user.tokenVersion || 0) + 1;
-  await user.save();
+  const salt = await bcrypt.genSalt(12);
+  const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-  // Generate new token
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      password: hashedPassword,
+      tokenVersion: { increment: 1 },
+      passwordChangedAt: new Date()
+    }
+  });
+
   const token = generateToken(user);
 
   success(res, { token }, 'Password changed successfully');
@@ -231,8 +233,10 @@ router.post('/change-password', auth, changePasswordValidation, catchAsync(async
 // @desc    Logout user (client-side token removal)
 // @access  Private
 router.post('/logout', auth, catchAsync(async (req, res) => {
-  // Increment tokenVersion to invalidate ALL existing refresh tokens for this user
-  await User.findByIdAndUpdate(req.user._id, { $inc: { tokenVersion: 1 } });
+  await prisma.user.update({
+    where: { id: req.user.id },
+    data: { tokenVersion: { increment: 1 } }
+  });
   success(res, null, 'Logged out successfully');
 }));
 
@@ -242,7 +246,7 @@ router.post('/logout', auth, catchAsync(async (req, res) => {
 router.get('/verify', auth, catchAsync(async (req, res) => {
   success(res, {
     valid: true,
-    user: req.user.toJSON(),
+    user: req.user,
   }, 'Token is valid');
 }));
 

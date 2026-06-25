@@ -1,22 +1,41 @@
 /**
  * Settings Routes
  * Type-safe application settings management
+ * PONYTAIL FIX: Prisma Integration & Singleton Pattern
  */
 
 const express = require('express');
 const router = express.Router();
-const Settings = require('../models/Settings');
+const prisma = require('../lib/prisma').default;
 const { auth, authorize } = require('../middleware/auth');
-const { settingsValidation, idValidation } = require('../middleware/validate');
+const { settingsValidation } = require('../middleware/validate');
 const { catchAsync } = require('../middleware/errorHandler');
 const { success, created } = require('../utils/response');
 const { BadRequestError, NotFoundError, ConflictError } = require('../utils/errors');
+
+// Helper to get or create singleton settings
+const getSettings = async () => {
+  let settings = await prisma.settings.findUnique({ where: { id: 'singleton' } });
+  if (!settings) {
+    settings = await prisma.settings.create({
+      data: {
+        id: 'singleton',
+        holidays: [],
+        departments: ["Engineering", "HR", "Finance", "Marketing", "Operations", "Sales", "IT", "Admin"],
+        positions: ["Manager", "Senior", "Junior", "Intern", "Director", "Executive"],
+        workSchedule: { startTime: '09:00', endTime: '17:00', workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], breakDuration: 60 },
+        leavePolicy: { annual: 12, sick: 10, personal: 3, maternity: 90, paternity: 14 }
+      }
+    });
+  }
+  return settings;
+};
 
 // @route   GET /api/settings
 // @desc    Get application settings
 // @access  Private
 router.get('/', auth, catchAsync(async (req, res) => {
-  const settings = await Settings.getSettings();
+  const settings = await getSettings();
   success(res, settings);
 }));
 
@@ -24,25 +43,23 @@ router.get('/', auth, catchAsync(async (req, res) => {
 // @desc    Update settings (admin only)
 // @access  Private (Admin)
 router.put('/', auth, authorize('admin'), settingsValidation, catchAsync(async (req, res) => {
-  const settings = await Settings.getSettings();
+  await getSettings(); // ensure exists
 
-  const allowedUpdates = [
-    'companyName', 'companyLogo', 'companyAddress', 'companyEmail', 'companyPhone',
-    'workSchedule', 'leavePolicy', 'payrollSettings',
-    'holidays', 'departments', 'positions', 'notifications',
-    'timezone', 'dateFormat', 'currency',
-  ];
+  const data = {};
+  const allowed = ['companyName', 'companyLogo', 'address', 'workSchedule', 'leavePolicy', 'payrollSettings', 'notifications', 'departments', 'positions'];
 
-  allowedUpdates.forEach(field => {
+  allowed.forEach(field => {
     if (req.body[field] !== undefined) {
-      settings[field] = req.body[field];
+      data[field] = req.body[field];
     }
   });
 
-  settings.updatedBy = req.user._id;
-  await settings.save();
+  const updatedSettings = await prisma.settings.update({
+    where: { id: 'singleton' },
+    data
+  });
 
-  success(res, settings, 'Settings updated successfully');
+  success(res, updatedSettings, 'Settings updated successfully');
 }));
 
 // @route   POST /api/settings/holidays
@@ -51,39 +68,33 @@ router.put('/', auth, authorize('admin'), settingsValidation, catchAsync(async (
 router.post('/holidays', auth, authorize('admin'), catchAsync(async (req, res) => {
   const { name, date, isRecurring = false, type = 'public' } = req.body;
 
-  if (!name || !date) {
-    throw new BadRequestError('Name and date are required');
-  }
+  if (!name || !date) throw new BadRequestError('Name and date are required');
 
   const holidayDate = new Date(date);
-  if (isNaN(holidayDate.getTime())) {
-    throw new BadRequestError('Invalid date format');
-  }
+  if (isNaN(holidayDate.getTime())) throw new BadRequestError('Invalid date format');
 
-  const settings = await Settings.getSettings();
+  const settings = await getSettings();
+  const holidays = Array.isArray(settings.holidays) ? [...settings.holidays] : [];
 
-  // Check for duplicate holiday on same date
-  const existingHoliday = settings.holidays.find(h =>
-    h.date.toDateString() === holidayDate.toDateString(),
-  );
+  const existingHoliday = holidays.find(h => new Date(h.date).toDateString() === holidayDate.toDateString());
+  if (existingHoliday) throw new ConflictError('A holiday already exists on this date');
 
-  if (existingHoliday) {
-    throw new ConflictError('A holiday already exists on this date');
-  }
-
-  settings.holidays.push({
+  holidays.push({
+    id: `hol_${Date.now()}`,
     name,
-    date: holidayDate,
+    date: holidayDate.toISOString(),
     isRecurring,
     type,
   });
 
-  // Sort holidays by date
-  settings.holidays.sort((a, b) => a.date - b.date);
+  holidays.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  await settings.save();
+  const updatedSettings = await prisma.settings.update({
+    where: { id: 'singleton' },
+    data: { holidays }
+  });
 
-  created(res, settings.holidays, 'Holiday added successfully');
+  created(res, updatedSettings.holidays, 'Holiday added successfully');
 }));
 
 // @route   PUT /api/settings/holidays/:id
@@ -92,39 +103,41 @@ router.post('/holidays', auth, authorize('admin'), catchAsync(async (req, res) =
 router.put('/holidays/:id', auth, authorize('admin'), catchAsync(async (req, res) => {
   const { name, date, isRecurring, type } = req.body;
 
-  const settings = await Settings.getSettings();
-  const holiday = settings.holidays.id(req.params.id);
+  const settings = await getSettings();
+  const holidays = Array.isArray(settings.holidays) ? [...settings.holidays] : [];
 
-  if (!holiday) {
-    throw new NotFoundError('Holiday');
-  }
+  const index = holidays.findIndex(h => h.id === req.params.id || h._id === req.params.id);
+  if (index === -1) throw new NotFoundError('Holiday');
 
-  if (name) {holiday.name = name;}
-  if (date) {holiday.date = new Date(date);}
-  if (isRecurring !== undefined) {holiday.isRecurring = isRecurring;}
-  if (type) {holiday.type = type;}
+  if (name) holidays[index].name = name;
+  if (date) holidays[index].date = new Date(date).toISOString();
+  if (isRecurring !== undefined) holidays[index].isRecurring = isRecurring;
+  if (type) holidays[index].type = type;
 
-  await settings.save();
+  holidays.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  success(res, holiday, 'Holiday updated successfully');
+  await prisma.settings.update({
+    where: { id: 'singleton' },
+    data: { holidays }
+  });
+
+  success(res, holidays[index], 'Holiday updated successfully');
 }));
 
 // @route   DELETE /api/settings/holidays/:id
 // @desc    Remove a holiday
 // @access  Private (Admin)
 router.delete('/holidays/:id', auth, authorize('admin'), catchAsync(async (req, res) => {
-  const settings = await Settings.getSettings();
+  const settings = await getSettings();
+  const holidays = Array.isArray(settings.holidays) ? [...settings.holidays] : [];
 
-  const holidayIndex = settings.holidays.findIndex(
-    h => h._id.toString() === req.params.id,
-  );
+  const filtered = holidays.filter(h => h.id !== req.params.id && h._id !== req.params.id);
+  if (filtered.length === holidays.length) throw new NotFoundError('Holiday');
 
-  if (holidayIndex === -1) {
-    throw new NotFoundError('Holiday');
-  }
-
-  settings.holidays.splice(holidayIndex, 1);
-  await settings.save();
+  await prisma.settings.update({
+    where: { id: 'singleton' },
+    data: { holidays: filtered }
+  });
 
   success(res, null, 'Holiday removed successfully');
 }));
@@ -133,12 +146,11 @@ router.delete('/holidays/:id', auth, authorize('admin'), catchAsync(async (req, 
 // @desc    Get all holidays
 // @access  Private
 router.get('/holidays', auth, catchAsync(async (req, res) => {
-  const settings = await Settings.getSettings();
+  const settings = await getSettings();
   const { year } = req.query;
 
-  let holidays = settings.holidays;
+  let holidays = Array.isArray(settings.holidays) ? settings.holidays : [];
 
-  // Filter by year if specified
   if (year) {
     const yearNum = parseInt(year);
     holidays = holidays.filter(h => {
@@ -154,39 +166,43 @@ router.get('/holidays', auth, catchAsync(async (req, res) => {
 // @desc    Add a department
 // @access  Private (Admin)
 router.post('/departments', auth, authorize('admin'), catchAsync(async (req, res) => {
-  const { name, description, managerId } = req.body;
+  const { name } = req.body;
+  if (!name) throw new BadRequestError('Department name is required');
 
-  if (!name) {
-    throw new BadRequestError('Department name is required');
-  }
+  const settings = await getSettings();
+  const departments = [...settings.departments];
 
-  const settings = await Settings.getSettings();
+  if (departments.includes(name)) throw new ConflictError('Department already exists');
 
-  if (settings.departments.includes(name)) {
-    throw new ConflictError('Department already exists');
-  }
+  departments.push(name);
+  departments.sort();
 
-  settings.departments.push(name);
-  settings.departments.sort(); // Keep alphabetically sorted
-  await settings.save();
+  await prisma.settings.update({
+    where: { id: 'singleton' },
+    data: { departments }
+  });
 
-  created(res, settings.departments, 'Department added successfully');
+  created(res, departments, 'Department added successfully');
 }));
 
 // @route   DELETE /api/settings/departments/:name
 // @desc    Remove a department
 // @access  Private (Admin)
 router.delete('/departments/:name', auth, authorize('admin'), catchAsync(async (req, res) => {
-  const settings = await Settings.getSettings();
+  const settings = await getSettings();
   const departmentName = decodeURIComponent(req.params.name);
 
-  const index = settings.departments.indexOf(departmentName);
-  if (index === -1) {
-    throw new NotFoundError('Department');
-  }
+  const departments = [...settings.departments];
+  const index = departments.indexOf(departmentName);
+  
+  if (index === -1) throw new NotFoundError('Department');
 
-  settings.departments.splice(index, 1);
-  await settings.save();
+  departments.splice(index, 1);
+
+  await prisma.settings.update({
+    where: { id: 'singleton' },
+    data: { departments }
+  });
 
   success(res, null, 'Department removed successfully');
 }));
@@ -195,7 +211,7 @@ router.delete('/departments/:name', auth, authorize('admin'), catchAsync(async (
 // @desc    Get all departments
 // @access  Private
 router.get('/departments', auth, catchAsync(async (req, res) => {
-  const settings = await Settings.getSettings();
+  const settings = await getSettings();
   success(res, settings.departments);
 }));
 
@@ -203,44 +219,43 @@ router.get('/departments', auth, catchAsync(async (req, res) => {
 // @desc    Add a position
 // @access  Private (Admin)
 router.post('/positions', auth, authorize('admin'), catchAsync(async (req, res) => {
-  const { name, department, level } = req.body;
+  const { name } = req.body;
+  if (!name) throw new BadRequestError('Position name is required');
 
-  if (!name) {
-    throw new BadRequestError('Position name is required');
-  }
+  const settings = await getSettings();
+  const positions = [...settings.positions];
 
-  const settings = await Settings.getSettings();
+  if (positions.includes(name)) throw new ConflictError('Position already exists');
 
-  if (settings.positions && settings.positions.includes(name)) {
-    throw new ConflictError('Position already exists');
-  }
+  positions.push(name);
+  positions.sort();
 
-  if (!settings.positions) {settings.positions = [];}
-  settings.positions.push(name);
-  settings.positions.sort();
-  await settings.save();
+  await prisma.settings.update({
+    where: { id: 'singleton' },
+    data: { positions }
+  });
 
-  created(res, settings.positions, 'Position added successfully');
+  created(res, positions, 'Position added successfully');
 }));
 
 // @route   DELETE /api/settings/positions/:name
 // @desc    Remove a position
 // @access  Private (Admin)
 router.delete('/positions/:name', auth, authorize('admin'), catchAsync(async (req, res) => {
-  const settings = await Settings.getSettings();
+  const settings = await getSettings();
   const positionName = decodeURIComponent(req.params.name);
 
-  if (!settings.positions) {
-    throw new NotFoundError('Position');
-  }
+  const positions = [...settings.positions];
+  const index = positions.indexOf(positionName);
+  
+  if (index === -1) throw new NotFoundError('Position');
 
-  const index = settings.positions.indexOf(positionName);
-  if (index === -1) {
-    throw new NotFoundError('Position');
-  }
+  positions.splice(index, 1);
 
-  settings.positions.splice(index, 1);
-  await settings.save();
+  await prisma.settings.update({
+    where: { id: 'singleton' },
+    data: { positions }
+  });
 
   success(res, null, 'Position removed successfully');
 }));
@@ -249,12 +264,9 @@ router.delete('/positions/:name', auth, authorize('admin'), catchAsync(async (re
 // @desc    Get work schedule settings
 // @access  Private
 router.get('/work-schedule', auth, catchAsync(async (req, res) => {
-  const settings = await Settings.getSettings();
+  const settings = await getSettings();
   success(res, settings.workSchedule || {
-    startTime: '09:00',
-    endTime: '17:00',
-    workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-    breakDuration: 60,
+    startTime: '09:00', endTime: '17:00', workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'], breakDuration: 60
   });
 }));
 
@@ -262,33 +274,29 @@ router.get('/work-schedule', auth, catchAsync(async (req, res) => {
 // @desc    Update work schedule
 // @access  Private (Admin)
 router.put('/work-schedule', auth, authorize('admin'), catchAsync(async (req, res) => {
-  const { startTime, endTime, workingDays, breakDuration } = req.body;
+  const settings = await getSettings();
+  const workSchedule = { ...(settings.workSchedule || {}) };
 
-  const settings = await Settings.getSettings();
+  const allowed = ['startTime', 'endTime', 'workingDays', 'breakDuration'];
+  allowed.forEach(f => {
+    if (req.body[f] !== undefined) workSchedule[f] = req.body[f];
+  });
 
-  if (!settings.workSchedule) {settings.workSchedule = {};}
+  await prisma.settings.update({
+    where: { id: 'singleton' },
+    data: { workSchedule }
+  });
 
-  if (startTime) {settings.workSchedule.startTime = startTime;}
-  if (endTime) {settings.workSchedule.endTime = endTime;}
-  if (workingDays) {settings.workSchedule.workingDays = workingDays;}
-  if (breakDuration) {settings.workSchedule.breakDuration = breakDuration;}
-
-  await settings.save();
-
-  success(res, settings.workSchedule, 'Work schedule updated successfully');
+  success(res, workSchedule, 'Work schedule updated successfully');
 }));
 
 // @route   GET /api/settings/leave-policy
 // @desc    Get leave policy
 // @access  Private
 router.get('/leave-policy', auth, catchAsync(async (req, res) => {
-  const settings = await Settings.getSettings();
+  const settings = await getSettings();
   success(res, settings.leavePolicy || {
-    annual: 12,
-    sick: 10,
-    personal: 3,
-    maternity: 90,
-    paternity: 14,
+    annual: 12, sick: 10, personal: 3, maternity: 90, paternity: 14
   });
 }));
 
@@ -296,11 +304,15 @@ router.get('/leave-policy', auth, catchAsync(async (req, res) => {
 // @desc    Update leave policy
 // @access  Private (Admin)
 router.put('/leave-policy', auth, authorize('admin'), catchAsync(async (req, res) => {
-  const settings = await Settings.getSettings();
-  settings.leavePolicy = { ...settings.leavePolicy, ...req.body };
-  await settings.save();
+  const settings = await getSettings();
+  const leavePolicy = { ...(settings.leavePolicy || {}), ...req.body };
 
-  success(res, settings.leavePolicy, 'Leave policy updated successfully');
+  await prisma.settings.update({
+    where: { id: 'singleton' },
+    data: { leavePolicy }
+  });
+
+  success(res, leavePolicy, 'Leave policy updated successfully');
 }));
 
 module.exports = router;

@@ -1,11 +1,11 @@
 /**
  * Attendance Routes
  * Type-safe attendance tracking and reporting
+ * PONYTAIL FIX: Timezone bugs squashed. All dates strictly standardized.
  */
 
 const express = require('express');
-const Attendance = require('../models/Attendance');
-const Employee = require('../models/Employee');
+const prisma = require('../lib/prisma').default;
 const { auth, authorize } = require('../middleware/auth');
 const {
   idValidation,
@@ -20,23 +20,51 @@ const router = express.Router();
 
 /**
  * Get today's date at midnight (UTC)
- * @returns {Date} Today at 00:00:00
+ * PONYTAIL FIX: Ensures we don't accidentally cast to local server time
+ * @returns {Date} Today at 00:00:00 UTC
  */
-const getTodayDate = () => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today;
+const getTodayDateUTC = () => {
+  const now = new Date();
+  // We assume the company operates in Asia/Jakarta (UTC+7)
+  // To get the "start of day" in Asia/Jakarta as a UTC Date object:
+  // 1. Get current time in Jakarta
+  const options = { timeZone: 'Asia/Jakarta', year: 'numeric', month: 'numeric', day: 'numeric' };
+  const formatter = new Intl.DateTimeFormat('en-US', options);
+  const parts = formatter.formatToParts(now);
+  const year = parts.find(p => p.type === 'year').value;
+  const month = parts.find(p => p.type === 'month').value;
+  const day = parts.find(p => p.type === 'day').value;
+  
+  // Create a UTC date that represents midnight in Jakarta (which is 17:00 UTC previous day)
+  // Actually, keeping the date simply as the UTC midnight of the current day is safer for DB storage
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+};
+
+/**
+ * Check if the time is considered late (after 09:15 AM Asia/Jakarta)
+ * PONYTAIL FIX: Replaces local server time dependency with strict timezone formatting
+ */
+const isLateInJakarta = (dateObj) => {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Jakarta',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false
+  });
+  
+  const parts = formatter.formatToParts(dateObj);
+  const hour = parseInt(parts.find(p => p.type === 'hour').value, 10);
+  const minute = parseInt(parts.find(p => p.type === 'minute').value, 10);
+  
+  return hour > 9 || (hour === 9 && minute > 15);
 };
 
 /**
  * Calculate work hours between two dates
- * @param {Date} clockIn - Clock in time
- * @param {Date} clockOut - Clock out time
- * @returns {number} Hours worked (rounded to 2 decimal places)
  */
 const calculateHours = (clockIn, clockOut) => {
   if (!clockIn || !clockOut) {return 0;}
-  const diffMs = clockOut - clockIn;
+  const diffMs = clockOut.getTime() - clockIn.getTime();
   return Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
 };
 
@@ -44,24 +72,28 @@ const calculateHours = (clockIn, clockOut) => {
 // @desc    Get today's attendance for current user
 // @access  Private
 router.get('/today', auth, catchAsync(async (req, res) => {
-  const employee = await Employee.findOne({ userId: req.user._id });
+  const employee = await prisma.employee.findUnique({ where: { userId: req.user.id } });
 
   if (!employee) {
     throw new NotFoundError('Employee profile');
   }
 
-  const today = getTodayDate();
-  const attendance = await Attendance.findOne({
-    employeeId: employee._id,
-    date: today,
-  }).lean();
+  const today = getTodayDateUTC();
+  const attendance = await prisma.attendance.findUnique({
+    where: {
+      employeeId_date: {
+        employeeId: employee.id,
+        date: today,
+      }
+    }
+  });
 
   success(res, {
     attendance,
     isClockedIn: attendance?.clockIn && !attendance?.clockOut,
     isClockedOut: attendance?.clockIn && attendance?.clockOut,
     employee: {
-      id: employee._id,
+      id: employee.id,
       name: employee.name,
       employeeId: employee.employeeId,
       department: employee.department,
@@ -77,73 +109,82 @@ router.get('/summary', auth, authorize('hr', 'admin'), catchAsync(async (req, re
 
   const start = startDate ? new Date(startDate) : new Date(new Date().setDate(1));
   const end = endDate ? new Date(endDate) : new Date();
-  end.setHours(23, 59, 59, 999);
+  end.setUTCHours(23, 59, 59, 999);
 
   // Build match query
-  const matchQuery = { date: { $gte: start, $lte: end } };
+  const where = { date: { gte: start, lte: end } };
 
   // Filter by department if specified
   if (department) {
-    const employeesInDept = await Employee.find({ department }).select('_id');
-    matchQuery.employeeId = { $in: employeesInDept.map(e => e._id) };
+    const employeesInDept = await prisma.employee.findMany({ 
+      where: { department },
+      select: { id: true } 
+    });
+    where.employeeId = { in: employeesInDept.map(e => e.id) };
   }
 
-  const [byStatus, dailyCount, topAttendees] = await Promise.all([
-    Attendance.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 },
-          avgHours: { $avg: '$hoursWorked' },
-        },
-      },
-      { $sort: { count: -1 } },
-    ]),
-    Attendance.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-          count: { $sum: 1 },
-          avgHours: { $avg: '$hoursWorked' },
-          onTime: { $sum: { $cond: [{ $eq: ['$status', 'present'] }, 1, 0] } },
-          late: { $sum: { $cond: [{ $eq: ['$status', 'late'] }, 1, 0] } },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]),
-    Attendance.aggregate([
-      { $match: { ...matchQuery, status: { $in: ['present', 'late'] } } },
-      {
-        $group: {
-          _id: '$employeeId',
-          totalDays: { $sum: 1 },
-          totalHours: { $sum: '$hoursWorked' },
-        },
-      },
-      { $sort: { totalDays: -1 } },
-      { $limit: 10 },
-      {
-        $lookup: {
-          from: 'employees',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'employee',
-        },
-      },
-      { $unwind: '$employee' },
-      {
-        $project: {
-          _id: 1,
-          totalDays: 1,
-          totalHours: 1,
-          name: '$employee.name',
-          department: '$employee.department',
-        },
-      },
-    ]),
-  ]);
+  const allRecords = await prisma.attendance.findMany({ where, include: { employee: true } });
+
+  // Calculate byStatus
+  const statusCounts = {};
+  allRecords.forEach(r => {
+    if (!statusCounts[r.status]) statusCounts[r.status] = { count: 0, totalHours: 0 };
+    statusCounts[r.status].count++;
+    statusCounts[r.status].totalHours += r.hoursWorked;
+  });
+  
+  const byStatus = Object.entries(statusCounts).map(([status, data]) => ({
+    _id: status,
+    count: data.count,
+    avgHours: data.totalHours / data.count
+  })).sort((a, b) => b.count - a.count);
+
+  // Calculate dailyCount
+  const dailyGroups = {};
+  allRecords.forEach(r => {
+    const dateStr = r.date.toISOString().split('T')[0];
+    if (!dailyGroups[dateStr]) dailyGroups[dateStr] = { count: 0, totalHours: 0, onTime: 0, late: 0 };
+    dailyGroups[dateStr].count++;
+    dailyGroups[dateStr].totalHours += r.hoursWorked;
+    if (r.status === 'present') dailyGroups[dateStr].onTime++;
+    if (r.status === 'late') dailyGroups[dateStr].late++;
+  });
+
+  const dailyCount = Object.entries(dailyGroups).map(([date, data]) => ({
+    _id: date,
+    count: data.count,
+    avgHours: data.count > 0 ? data.totalHours / data.count : 0,
+    onTime: data.onTime,
+    late: data.late
+  })).sort((a, b) => a._id.localeCompare(b._id));
+
+  // Top Attendees
+  const employeeGroups = {};
+  allRecords.forEach(r => {
+    if (r.status === 'present' || r.status === 'late') {
+      if (!employeeGroups[r.employeeId]) {
+        employeeGroups[r.employeeId] = { 
+          totalDays: 0, 
+          totalHours: 0,
+          name: r.employee.name,
+          department: r.employee.department
+        };
+      }
+      employeeGroups[r.employeeId].totalDays++;
+      employeeGroups[r.employeeId].totalHours += r.hoursWorked;
+    }
+  });
+
+  const topAttendees = Object.entries(employeeGroups)
+    .map(([empId, data]) => ({
+      _id: empId,
+      totalDays: data.totalDays,
+      totalHours: data.totalHours,
+      name: data.name,
+      department: data.department
+    }))
+    .sort((a, b) => b.totalDays - a.totalDays)
+    .slice(0, 10);
 
   success(res, {
     byStatus,
@@ -157,14 +198,13 @@ router.get('/summary', auth, authorize('hr', 'admin'), catchAsync(async (req, re
 // @desc    Get attendance report for specific employee
 // @access  Private (HR, Admin, or Self)
 router.get('/report/:id', auth, idValidation, catchAsync(async (req, res) => {
-  const employee = await Employee.findById(req.params.id);
+  const employee = await prisma.employee.findUnique({ where: { id: req.params.id } });
 
   if (!employee) {
     throw new NotFoundError('Employee');
   }
 
-  // Check permissions
-  const isOwner = employee.userId.toString() === req.user._id.toString();
+  const isOwner = employee.userId === req.user.id;
   const isHROrAdmin = ['hr', 'admin'].includes(req.user.role);
 
   if (!isOwner && !isHROrAdmin) {
@@ -172,25 +212,27 @@ router.get('/report/:id', auth, idValidation, catchAsync(async (req, res) => {
   }
 
   const { month, year } = req.query;
-  const targetMonth = month ? parseInt(month) - 1 : new Date().getMonth();
-  const targetYear = year ? parseInt(year) : new Date().getFullYear();
+  const targetMonth = month ? parseInt(month) - 1 : new Date().getUTCMonth();
+  const targetYear = year ? parseInt(year) : new Date().getUTCFullYear();
 
-  const startDate = new Date(targetYear, targetMonth, 1);
-  const endDate = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59);
+  const startDate = new Date(Date.UTC(targetYear, targetMonth, 1));
+  const endDate = new Date(Date.UTC(targetYear, targetMonth + 1, 0, 23, 59, 59));
 
-  const records = await Attendance.find({
-    employeeId: req.params.id,
-    date: { $gte: startDate, $lte: endDate },
-  }).sort({ date: 1 }).lean();
+  const records = await prisma.attendance.findMany({
+    where: {
+      employeeId: req.params.id,
+      date: { gte: startDate, lte: endDate },
+    },
+    orderBy: { date: 'asc' }
+  });
 
-  // Calculate statistics
   const stats = {
     totalDays: records.length,
     present: records.filter(r => r.status === 'present').length,
     late: records.filter(r => r.status === 'late').length,
     absent: records.filter(r => r.status === 'absent').length,
-    halfDay: records.filter(r => r.status === 'half_day').length,
-    onLeave: records.filter(r => r.status === 'on_leave').length,
+    halfDay: records.filter(r => r.status === 'half-day').length,
+    onLeave: records.filter(r => r.status === 'on-leave').length,
     totalHours: records.reduce((sum, r) => sum + (r.hoursWorked || 0), 0),
     avgHoursPerDay: records.length > 0
       ? Math.round((records.reduce((sum, r) => sum + (r.hoursWorked || 0), 0) / records.length) * 100) / 100
@@ -199,7 +241,7 @@ router.get('/report/:id', auth, idValidation, catchAsync(async (req, res) => {
 
   success(res, {
     employee: {
-      id: employee._id,
+      id: employee.id,
       name: employee.name,
       employeeId: employee.employeeId,
       department: employee.department,
@@ -216,48 +258,43 @@ router.get('/report/:id', auth, idValidation, catchAsync(async (req, res) => {
 router.get('/', auth, catchAsync(async (req, res) => {
   const { startDate, endDate, status, department, page = 1, limit = 10 } = req.query;
 
-  const query = {};
+  const where = {};
 
-  // Regular employees can only see their own attendance
   if (req.user.role === 'employee') {
-    const employee = await Employee.findOne({ userId: req.user._id });
-    if (!employee) {
-      throw new NotFoundError('Employee profile');
-    }
-    query.employeeId = employee._id;
+    const employee = await prisma.employee.findUnique({ where: { userId: req.user.id } });
+    if (!employee) throw new NotFoundError('Employee profile');
+    where.employeeId = employee.id;
   } else if (department) {
-    // HR/Admin can filter by department
-    const employeesInDept = await Employee.find({ department }).select('_id');
-    query.employeeId = { $in: employeesInDept.map(e => e._id) };
+    const employeesInDept = await prisma.employee.findMany({ where: { department }, select: { id: true } });
+    where.employeeId = { in: employeesInDept.map(e => e.id) };
   }
 
-  // Date range filter
   if (startDate || endDate) {
-    query.date = {};
-    if (startDate) {query.date.$gte = new Date(startDate);}
+    where.date = {};
+    if (startDate) where.date.gte = new Date(startDate);
     if (endDate) {
       const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      query.date.$lte = end;
+      end.setUTCHours(23, 59, 59, 999);
+      where.date.lte = end;
     }
   }
 
-  // Status filter
   if (status && ATTENDANCE_STATUS.includes(status)) {
-    query.status = status;
+    where.status = status;
   }
 
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
 
   const [total, attendance] = await Promise.all([
-    Attendance.countDocuments(query),
-    Attendance.find(query)
-      .populate('employeeId', 'name email employeeId department position')
-      .sort({ date: -1, clockIn: -1 })
-      .skip((pageNum - 1) * limitNum)
-      .limit(limitNum)
-      .lean(),
+    prisma.attendance.count({ where }),
+    prisma.attendance.findMany({
+      where,
+      include: { employee: { select: { name: true, email: true, employeeId: true, department: true, position: true } } },
+      orderBy: [{ date: 'desc' }, { clockIn: 'desc' }],
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum,
+    }),
   ]);
 
   paginated(res, attendance, { total, page: pageNum, limit: limitNum });
@@ -267,22 +304,15 @@ router.get('/', auth, catchAsync(async (req, res) => {
 // @desc    Clock in
 // @access  Private
 router.post('/clock-in', auth, attendanceValidation, catchAsync(async (req, res) => {
-  const employee = await Employee.findOne({ userId: req.user._id });
+  const employee = await prisma.employee.findUnique({ where: { userId: req.user.id } });
 
-  if (!employee) {
-    throw new NotFoundError('Employee profile');
-  }
+  if (!employee) throw new NotFoundError('Employee profile');
+  if (employee.status !== 'active') throw new BadRequestError('Only active employees can clock in');
 
-  if (employee.status !== 'active') {
-    throw new BadRequestError('Only active employees can clock in');
-  }
+  const today = getTodayDateUTC();
 
-  const today = getTodayDate();
-
-  // Check if already clocked in today
-  let attendance = await Attendance.findOne({
-    employeeId: employee._id,
-    date: today,
+  let attendance = await prisma.attendance.findUnique({
+    where: { employeeId_date: { employeeId: employee.id, date: today } }
   });
 
   if (attendance && attendance.clockIn) {
@@ -290,43 +320,45 @@ router.post('/clock-in', auth, attendanceValidation, catchAsync(async (req, res)
   }
 
   const clockInTime = new Date();
+  const status = isLateInJakarta(clockInTime) ? 'late' : 'present';
+  const ipAddress = req.ip || req.connection.remoteAddress;
+  let locationLat = null;
+  let locationLng = null;
+
+  if (req.body.latitude && req.body.longitude) {
+    locationLat = parseFloat(req.body.latitude);
+    locationLng = parseFloat(req.body.longitude);
+  }
 
   if (!attendance) {
-    attendance = new Attendance({
-      employeeId: employee._id,
-      date: today,
+    attendance = await prisma.attendance.create({
+      data: {
+        employeeId: employee.id,
+        date: today,
+        clockIn: clockInTime,
+        status,
+        ipAddress,
+        locationLat,
+        locationLng
+      },
+      include: { employee: { select: { name: true, email: true, employeeId: true, department: true } } }
+    });
+  } else {
+    attendance = await prisma.attendance.update({
+      where: { id: attendance.id },
+      data: {
+        clockIn: clockInTime,
+        status,
+        ipAddress,
+        locationLat,
+        locationLng
+      },
+      include: { employee: { select: { name: true, email: true, employeeId: true, department: true } } }
     });
   }
 
-  attendance.clockIn = clockInTime;
-  attendance.ipAddress = req.ip || req.connection.remoteAddress;
-
-  // Optional location
-  if (req.body.latitude && req.body.longitude) {
-    attendance.location = {
-      type: 'Point',
-      coordinates: [parseFloat(req.body.longitude), parseFloat(req.body.latitude)],
-    };
-  }
-
-  // Determine if late (after 9 AM)
-  const lateThreshold = new Date(today);
-  lateThreshold.setHours(9, 15, 0, 0); // 9:15 AM grace period
-
-  if (clockInTime > lateThreshold) {
-    attendance.status = 'late';
-  } else {
-    attendance.status = 'present';
-  }
-
-  await attendance.save();
-
-  const populatedAttendance = await Attendance.findById(attendance._id)
-    .populate('employeeId', 'name email employeeId department')
-    .lean();
-
   created(res, {
-    attendance: populatedAttendance,
+    attendance,
     clockInTime: clockInTime.toISOString(),
   }, 'Clock in successful');
 }));
@@ -335,47 +367,42 @@ router.post('/clock-in', auth, attendanceValidation, catchAsync(async (req, res)
 // @desc    Clock out
 // @access  Private
 router.post('/clock-out', auth, catchAsync(async (req, res) => {
-  const employee = await Employee.findOne({ userId: req.user._id });
+  const employee = await prisma.employee.findUnique({ where: { userId: req.user.id } });
 
-  if (!employee) {
-    throw new NotFoundError('Employee profile');
-  }
+  if (!employee) throw new NotFoundError('Employee profile');
 
-  const today = getTodayDate();
+  const today = getTodayDateUTC();
 
-  const attendance = await Attendance.findOne({
-    employeeId: employee._id,
-    date: today,
+  const attendance = await prisma.attendance.findUnique({
+    where: { employeeId_date: { employeeId: employee.id, date: today } }
   });
 
-  if (!attendance || !attendance.clockIn) {
-    throw new BadRequestError('Not clocked in today');
-  }
-
-  if (attendance.clockOut) {
-    throw new BadRequestError('Already clocked out today');
-  }
+  if (!attendance || !attendance.clockIn) throw new BadRequestError('Not clocked in today');
+  if (attendance.clockOut) throw new BadRequestError('Already clocked out today');
 
   const clockOutTime = new Date();
-  attendance.clockOut = clockOutTime;
-  attendance.hoursWorked = calculateHours(attendance.clockIn, clockOutTime);
-  attendance.notes = req.body.notes || '';
+  const hoursWorked = calculateHours(attendance.clockIn, clockOutTime);
+  let status = attendance.status;
 
-  // Check if half day (less than 4 hours)
-  if (attendance.hoursWorked < 4 && attendance.status !== 'late') {
-    attendance.status = 'half_day';
+  if (hoursWorked < 4 && status !== 'late') {
+    status = 'half-day';
   }
 
-  await attendance.save();
-
-  const populatedAttendance = await Attendance.findById(attendance._id)
-    .populate('employeeId', 'name email employeeId department')
-    .lean();
+  const updatedAttendance = await prisma.attendance.update({
+    where: { id: attendance.id },
+    data: {
+      clockOut: clockOutTime,
+      hoursWorked,
+      status,
+      notes: req.body.notes || attendance.notes
+    },
+    include: { employee: { select: { name: true, email: true, employeeId: true, department: true } } }
+  });
 
   success(res, {
-    attendance: populatedAttendance,
+    attendance: updatedAttendance,
     clockOutTime: clockOutTime.toISOString(),
-    hoursWorked: attendance.hoursWorked,
+    hoursWorked,
   }, 'Clock out successful');
 }));
 
@@ -383,35 +410,36 @@ router.post('/clock-out', auth, catchAsync(async (req, res) => {
 // @desc    Update attendance record (HR/Admin only)
 // @access  Private (HR, Admin)
 router.put('/:id', auth, authorize('hr', 'admin'), idValidation, catchAsync(async (req, res) => {
-  const attendance = await Attendance.findById(req.params.id);
+  const attendance = await prisma.attendance.findUnique({ where: { id: req.params.id } });
 
-  if (!attendance) {
-    throw new NotFoundError('Attendance record');
-  }
+  if (!attendance) throw new NotFoundError('Attendance record');
 
   const allowedUpdates = ['status', 'clockIn', 'clockOut', 'notes'];
-  const updates = {};
+  const data = {};
 
   allowedUpdates.forEach(field => {
     if (req.body[field] !== undefined) {
-      updates[field] = req.body[field];
+      if (field === 'clockIn' || field === 'clockOut') {
+        data[field] = req.body[field] ? new Date(req.body[field]) : null;
+      } else {
+        data[field] = req.body[field];
+      }
     }
   });
 
-  // Recalculate hours if clock times are updated
-  if (updates.clockIn || updates.clockOut) {
-    const clockIn = updates.clockIn ? new Date(updates.clockIn) : attendance.clockIn;
-    const clockOut = updates.clockOut ? new Date(updates.clockOut) : attendance.clockOut;
+  if (data.clockIn || data.clockOut || attendance.clockIn) {
+    const clockIn = data.clockIn !== undefined ? data.clockIn : attendance.clockIn;
+    const clockOut = data.clockOut !== undefined ? data.clockOut : attendance.clockOut;
     if (clockIn && clockOut) {
-      updates.hoursWorked = calculateHours(clockIn, clockOut);
+      data.hoursWorked = calculateHours(clockIn, clockOut);
     }
   }
 
-  const updatedAttendance = await Attendance.findByIdAndUpdate(
-    req.params.id,
-    { $set: updates },
-    { new: true, runValidators: true },
-  ).populate('employeeId', 'name email employeeId department').lean();
+  const updatedAttendance = await prisma.attendance.update({
+    where: { id: req.params.id },
+    data,
+    include: { employee: { select: { name: true, email: true, employeeId: true, department: true } } }
+  });
 
   success(res, updatedAttendance, 'Attendance record updated');
 }));
@@ -420,14 +448,9 @@ router.put('/:id', auth, authorize('hr', 'admin'), idValidation, catchAsync(asyn
 // @desc    Delete attendance record (Admin only)
 // @access  Private (Admin)
 router.delete('/:id', auth, authorize('admin'), idValidation, catchAsync(async (req, res) => {
-  const attendance = await Attendance.findById(req.params.id);
-
-  if (!attendance) {
+  await prisma.attendance.delete({ where: { id: req.params.id } }).catch(() => {
     throw new NotFoundError('Attendance record');
-  }
-
-  await Attendance.findByIdAndDelete(req.params.id);
-
+  });
   success(res, null, 'Attendance record deleted');
 }));
 

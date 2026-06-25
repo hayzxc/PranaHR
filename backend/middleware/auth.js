@@ -1,19 +1,18 @@
 /**
  * Authentication & Authorization Middleware
  * Type-safe JWT verification and role-based access control
+ * PONYTAIL FIX: Prisma Integration
  */
 
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const prisma = require('../lib/prisma').default;
 const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
 
 /**
  * Verify JWT token and attach user to request
- * @throws {UnauthorizedError} If token is missing, invalid, or expired
  */
 const auth = async (req, res, next) => {
   try {
-    // Get token from header
     const authHeader = req.header('Authorization');
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -26,11 +25,12 @@ const auth = async (req, res, next) => {
       throw new UnauthorizedError('Access denied. No token provided.');
     }
 
-    // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Find user
-    const user = await User.findById(decoded.id).select('-password');
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: { id: true, email: true, role: true, isActive: true } // Exclude password
+    });
 
     if (!user) {
       throw new UnauthorizedError('User not found.');
@@ -40,14 +40,12 @@ const auth = async (req, res, next) => {
       throw new UnauthorizedError('User account is deactivated.');
     }
 
-    // Attach user and token to request
     req.user = user;
     req.token = token;
-    req.userId = user._id;
+    req.userId = user.id;
 
     next();
   } catch (error) {
-    // Pass to error handler
     if (error.name === 'JsonWebTokenError') {
       return next(new UnauthorizedError('Invalid token.'));
     }
@@ -60,8 +58,6 @@ const auth = async (req, res, next) => {
 
 /**
  * Check if user has required role(s)
- * @param {...string} roles - Allowed roles
- * @throws {ForbiddenError} If user doesn't have required role
  */
 const authorize = (...roles) => {
   return (req, res, next) => {
@@ -80,7 +76,7 @@ const authorize = (...roles) => {
 };
 
 /**
- * Optional auth - attaches user if token exists, but doesn't require it
+ * Optional auth
  */
 const optionalAuth = async (req, res, next) => {
   try {
@@ -92,24 +88,26 @@ const optionalAuth = async (req, res, next) => {
 
     const token = authHeader.replace('Bearer ', '');
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select('-password');
+    
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: { id: true, email: true, role: true, isActive: true }
+    });
 
     if (user && user.isActive) {
       req.user = user;
       req.token = token;
-      req.userId = user._id;
+      req.userId = user.id;
     }
 
     next();
   } catch (error) {
-    // Silently continue without user for optional auth
     next();
   }
 };
 
 /**
  * Check if user owns the resource or has admin/hr role
- * @param {string} ownerField - Field name containing owner ID
  */
 const authorizeOwnerOrAdmin = (ownerField = 'userId') => {
   return (req, res, next) => {
@@ -117,15 +115,13 @@ const authorizeOwnerOrAdmin = (ownerField = 'userId') => {
       return next(new UnauthorizedError('Not authenticated.'));
     }
 
-    // Admin and HR can access anything
     if (['admin', 'hr'].includes(req.user.role)) {
       return next();
     }
 
-    // Check if resource exists and user owns it
     if (req.resource && req.resource[ownerField]) {
       const ownerId = req.resource[ownerField].toString();
-      const userId = req.user._id.toString();
+      const userId = req.user.id.toString();
 
       if (ownerId === userId) {
         return next();
