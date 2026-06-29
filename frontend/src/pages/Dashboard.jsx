@@ -225,38 +225,39 @@ const Dashboard = () => {
             {/* Header Area */}
             <div className="flex flex-col lg:flex-row gap-6">
                 {/* Welcome Card */}
-                <div className="flex-1 card-gradient relative overflow-hidden animate-fade-in">
-                    {/* Decorative Circles */}
-                    <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full"></div>
-                    <div className="absolute -bottom-10 -right-20 w-60 h-60 bg-white/5 rounded-full"></div>
+                <div className="flex-1 rounded-3xl bg-gradient-to-br from-primary-800 via-primary-600 to-teal-500 text-white p-8 relative overflow-hidden shadow-soft-lg animate-fade-in border border-primary-700/30">
+                    {/* Decorative pulsing blobs */}
+                    <div className="absolute -top-12 -right-12 w-48 h-48 bg-white/10 rounded-full blur-xl animate-pulse" style={{ animationDuration: '4s' }}></div>
+                    <div className="absolute -bottom-20 -right-20 w-80 h-80 bg-accent-500/10 rounded-full blur-2xl animate-float"></div>
+                    <div className="absolute top-1/2 left-1/3 w-32 h-32 bg-teal-300/10 rounded-full blur-xl animate-pulse" style={{ animationDuration: '6s', animationDelay: '1s' }}></div>
 
                     <div className="relative z-10">
-                        <p className="text-primary-100 text-sm font-medium mb-1">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold tracking-wider bg-white/10 backdrop-blur-md text-primary-50 mb-4 border border-white/10 uppercase">
+                            <Calendar className="w-3.5 h-3.5" />
                             {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                        </p>
-                        <h1 className="text-2xl md:text-3xl font-bold mb-2">
+                        </span>
+                        <h1 className="text-3xl md:text-4xl font-extrabold mb-2 tracking-tight">
                             Hello, {employee?.name?.split(' ')[0] || user?.email?.split('@')[0]}! 👋
                         </h1>
-                        <p className="text-primary-100">
-                            {isClockedIn ? "You're currently working. Keep up the great work!" : "Ready to start your day? Clock in to begin."}
+                        <p className="text-primary-100/90 max-w-md text-sm md:text-base leading-relaxed">
+                            {isClockedIn ? "You're currently clocked in. Keep up the excellent performance!" : "Ready for a productive day? Clock in to log your hours."}
                         </p>
 
                         {/* Today's Attendance Summary */}
                         {todayAttendance?.attendance && (
-                            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4">
                                 {[
                                     { label: 'Clock In', value: todayAttendance.attendance.clockIn ? new Date(todayAttendance.attendance.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--' },
                                     { label: 'Clock Out', value: todayAttendance.attendance.clockOut ? new Date(todayAttendance.attendance.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--' },
-                                    { label: 'Hours', value: `${todayAttendance.attendance.hoursWorked?.toFixed(1) || '0'}h` },
-                                    { label: 'Status', value: todayAttendance.attendance.status || 'pending' },
+                                    { label: 'Hours Worked', value: `${todayAttendance.attendance.hoursWorked?.toFixed(1) || '0.0'}h` },
+                                    { label: 'Shift Status', value: todayAttendance.attendance.status || 'pending' },
                                 ].map((item, i) => (
                                     <div
                                         key={i}
-                                        className="bg-white/10 backdrop-blur-sm rounded-xl px-3 py-2 animate-fade-in"
-                                        style={{ animationDelay: `${i * 100}ms` }}
+                                        className="bg-white/15 backdrop-blur-md rounded-2xl p-3 border border-white/10 shadow-inner-soft hover:bg-white/20 transition-all duration-300"
                                     >
-                                        <p className="text-primary-200 text-xs">{item.label}</p>
-                                        <p className="font-semibold capitalize">{item.value}</p>
+                                        <p className="text-primary-200 text-xs font-medium uppercase tracking-wider mb-1">{item.label}</p>
+                                        <p className="font-bold text-base md:text-lg tracking-tight capitalize">{item.value}</p>
                                     </div>
                                 ))}
                             </div>
@@ -265,38 +266,52 @@ const Dashboard = () => {
                 </div>
 
                 {/* Clock In/Out Card */}
-                <div className="lg:w-80 card flex flex-col items-center justify-center text-center animate-fade-in" style={{ animationDelay: '150ms' }}>
-                    <div className="text-4xl font-bold text-surface-800 mb-1 tracking-tight tabular-nums">
+                <div className="lg:w-80 glass-premium rounded-3xl p-6 flex flex-col items-center justify-center text-center animate-fade-in border border-white/80 shadow-soft-lg hover:shadow-soft-lg hover:border-primary-200/40 transition-spring" style={{ animationDelay: '150ms' }}>
+                    {/* Status Circle Ring */}
+                    <div className="relative w-28 h-28 mb-4 flex items-center justify-center">
+                        <div className={`absolute inset-0 rounded-full border-4 border-dashed transition-all duration-1000 ${
+                            isClockedIn ? 'border-emerald-500 animate-spin' : 'border-surface-200'
+                        }`} style={{ animationDuration: '15s' }}></div>
+                        <div className={`absolute w-24 h-24 rounded-full bg-surface-50 flex flex-col items-center justify-center shadow-inner ${
+                            isClockedIn ? 'ring-4 ring-emerald-500/20' : 'ring-4 ring-surface-100/50'
+                        }`}>
+                            <Clock className={`w-8 h-8 ${isClockedIn ? 'text-emerald-500 animate-pulse' : 'text-surface-400'}`} />
+                        </div>
+                    </div>
+
+                    <div className="text-3xl font-extrabold text-surface-800 mb-1 tracking-tight tabular-nums">
                         {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                     </div>
-                    <p className="text-sm text-surface-500 mb-6">
+                    <p className="text-xs font-semibold text-surface-500 mb-6">
                         {isClockedIn ? (
-                            <span className="inline-flex items-center gap-1.5">
-                                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                                Currently Working
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                                ON DUTY
                             </span>
                         ) : (
-                            <span className="text-surface-400">Not clocked in</span>
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-100 text-surface-600 border border-surface-200">
+                                STANDBY
+                            </span>
                         )}
                     </p>
                     <button
                         onClick={isClockedIn ? handleClockOut : handleClockIn}
                         disabled={clockingIn}
-                        className={`w-full flex items-center justify-center gap-2 px-6 py-4 rounded-xl font-semibold text-lg transition-all transform hover:scale-[1.02] active:scale-[0.98] ${isClockedIn
-                            ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white shadow-lg shadow-red-500/30'
-                            : 'btn-primary'
+                        className={`w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-bold text-base transition-all transform hover:-translate-y-0.5 active:translate-y-0 shadow-lg ${isClockedIn
+                            ? 'bg-gradient-to-r from-red-500 via-rose-500 to-red-600 text-white shadow-glow-rose hover:shadow-red-500/40 hover:scale-[1.02]'
+                            : 'btn-primary shadow-glow-teal hover:scale-[1.02]'
                             }`}
                     >
                         {clockingIn ? (
-                            <div className="w-6 h-6 border-2 border-current/30 border-t-current rounded-full animate-spin"></div>
+                            <div className="w-5 h-5 border-2 border-current/30 border-t-current rounded-full animate-spin"></div>
                         ) : isClockedIn ? (
                             <>
-                                <Square className="w-5 h-5" />
+                                <Square className="w-4.5 h-4.5 fill-current" />
                                 Clock Out
                             </>
                         ) : (
                             <>
-                                <Play className="w-5 h-5" />
+                                <Play className="w-4.5 h-4.5 fill-current" />
                                 Clock In
                             </>
                         )}

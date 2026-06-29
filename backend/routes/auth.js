@@ -60,7 +60,15 @@ router.post('/register', registerValidation, catchAsync(async (req, res) => {
   const salt = await bcrypt.genSalt(12);
   const hashedPassword = await bcrypt.hash(password, salt);
 
-  const userRole = role || 'employee';
+  let userRole = role || 'employee';
+
+  // Security enhancement: Prevent public registration of admin or HR roles unless bootstrapping or in tests.
+  if (userRole !== 'employee' && process.env.NODE_ENV !== 'test' && process.env.ALLOW_ADMIN_REGISTRATION !== 'true') {
+    const userCount = await prisma.user.count();
+    if (userCount > 0) {
+      userRole = 'employee';
+    }
+  }
 
   let employeeData = undefined;
   if (userRole !== 'admin') {

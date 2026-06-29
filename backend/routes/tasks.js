@@ -7,8 +7,8 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const prisma = require('../lib/prisma').default;
 const { auth, authorize } = require('../middleware/auth');
 const { catchAsync } = require('../middleware/errorHandler');
@@ -16,34 +16,34 @@ const { success, created, paginated } = require('../utils/response');
 const { BadRequestError, NotFoundError, ForbiddenError } = require('../utils/errors');
 const { createNotification, createBulkNotifications } = require('../utils/notifications');
 
-// Configure multer storage for tasks
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../uploads/tasks');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `${uniqueSuffix}${ext}`);
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+// Configure multer storage for tasks to use Cloudinary
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'pranahr/tasks',
+    resource_type: 'auto', // Automatically detects image, video, or raw (pdf)
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit to save space
 });
 
-const cleanupFile = (filepath) => {
+const cleanupFile = async (publicId) => {
   try {
-    if (filepath && fs.existsSync(filepath)) {
-      fs.unlinkSync(filepath);
+    if (publicId) {
+      await cloudinary.uploader.destroy(publicId);
     }
   } catch (err) {
-    console.error('Error cleaning up file:', err);
+    console.error('Error cleaning up file in Cloudinary:', err);
   }
 };
 
@@ -156,13 +156,13 @@ router.post('/', auth, authorize('admin', 'hr'), upload.single('file'), catchAsy
   const { title, description, assignedTo, dueDate, priority, category } = req.body;
 
   if (!title || !assignedTo || !dueDate) {
-    if (req.file) cleanupFile(req.file.path);
+    if (req.file) cleanupFile(req.file.filename); // multer-storage-cloudinary sets filename as public_id
     throw new BadRequestError('Title, assignedTo, and dueDate are required');
   }
 
   const employee = await prisma.employee.findUnique({ where: { id: assignedTo } });
   if (!employee) {
-    if (req.file) cleanupFile(req.file.path);
+    if (req.file) cleanupFile(req.file.filename);
     throw new NotFoundError('Employee');
   }
 
@@ -177,8 +177,16 @@ router.post('/', auth, authorize('admin', 'hr'), upload.single('file'), catchAsy
   };
 
   if (req.file) {
-    taskData.attachmentUrl = `uploads/tasks/${req.file.filename}`;
+    // For images, we can append transformations to the URL to save space
+    let optimizedUrl = req.file.path;
+    if (req.file.mimetype.startsWith('image/')) {
+        // Automatically optimize format and quality
+        optimizedUrl = optimizedUrl.replace('/upload/', '/upload/q_auto,f_auto/');
+    }
+    
+    taskData.attachmentUrl = optimizedUrl;
     taskData.attachmentName = req.file.originalname;
+    taskData.notes = req.file.filename; // We temporarily store the Cloudinary public_id in notes to delete it later
   }
 
   const task = await prisma.task.create({
@@ -241,7 +249,7 @@ router.put('/:id', auth, authorize('admin', 'hr'), upload.single('file'), catchA
 
   const task = await prisma.task.findUnique({ where: { id: req.params.id } });
   if (!task) {
-    if (req.file) cleanupFile(req.file.path);
+    if (req.file) cleanupFile(req.file.filename);
     throw new NotFoundError('Task');
   }
 
@@ -258,13 +266,21 @@ router.put('/:id', auth, authorize('admin', 'hr'), upload.single('file'), catchA
   }
 
   if (req.file) {
-    data.attachmentUrl = `uploads/tasks/${req.file.filename}`;
+    let optimizedUrl = req.file.path;
+    if (req.file.mimetype.startsWith('image/')) {
+        optimizedUrl = optimizedUrl.replace('/upload/', '/upload/q_auto,f_auto/');
+    }
+    
+    data.attachmentUrl = optimizedUrl;
     data.attachmentName = req.file.originalname;
     
-    // Clean up old file
-    if (task.attachmentUrl) {
-      cleanupFile(path.join(__dirname, '..', task.attachmentUrl));
+    // Clean up old file from Cloudinary
+    if (task.notes && task.attachmentUrl && task.attachmentUrl.includes('cloudinary')) {
+      // Assuming public_id is stored in notes
+      cleanupFile(task.notes);
     }
+    
+    data.notes = req.file.filename; // Store new public_id
   }
 
   const updatedTask = await prisma.task.update({
@@ -326,8 +342,8 @@ router.delete('/:id', auth, authorize('admin', 'hr'), catchAsync(async (req, res
   if (!task) throw new NotFoundError('Task');
 
   // Clean up attached file if exists
-  if (task.attachmentUrl) {
-    cleanupFile(path.join(__dirname, '..', task.attachmentUrl));
+  if (task.attachmentUrl && task.attachmentUrl.includes('cloudinary') && task.notes) {
+    cleanupFile(task.notes);
   }
 
   await prisma.task.delete({ where: { id: req.params.id } });

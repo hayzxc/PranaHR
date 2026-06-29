@@ -313,7 +313,7 @@ const Tasks = () => {
                                         )}
                                         {task.attachmentUrl && (
                                             <a 
-                                                href={`${API_BASE_URL}/${task.attachmentUrl}`} 
+                                                href={task.attachmentUrl.startsWith('http') ? task.attachmentUrl : `${API_BASE_URL}/${task.attachmentUrl}`} 
                                                 target="_blank" 
                                                 rel="noopener noreferrer"
                                                 className="flex items-center gap-1 text-primary-600 hover:text-primary-700 transition-colors"

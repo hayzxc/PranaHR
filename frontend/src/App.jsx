@@ -6,6 +6,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import Layout from './components/Layout';
 import { lazy, Suspense } from 'react';
+import { ThemeProvider } from './context/ThemeContext';
 
 // Lazy-loaded pages — each becomes its own chunk, loaded on demand
 const Login = lazy(() => import('./pages/Login'));
@@ -41,131 +42,133 @@ const PageLoader = () => (
 
 function App() {
   return (
-    <AuthProvider>
-      <NotificationProvider>
-        <ToastProvider>
-          <Router>
-            <Suspense fallback={<PageLoader />}>
-              <ErrorBoundary>
-                <Routes>
-                  {/* Public routes */}
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/register" element={<Register />} />
+    <ThemeProvider>
+      <AuthProvider>
+        <NotificationProvider>
+          <ToastProvider>
+            <Router>
+              <Suspense fallback={<PageLoader />}>
+                <ErrorBoundary>
+                  <Routes>
+                    {/* Public routes */}
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/register" element={<Register />} />
 
-                  {/* Protected routes */}
-                  <Route
-                    path="/"
-                    element={
-                      <ProtectedRoute>
-                        <Layout />
-                      </ProtectedRoute>
-                    }
-                  >
-                    <Route index element={<Navigate to="/dashboard" replace />} />
-                    <Route path="dashboard" element={<Dashboard />} />
+                    {/* Protected routes */}
                     <Route
-                      path="employees"
-                      element={
-                        <ProtectedRoute roles={['admin', 'hr']}>
-                          <Employees />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="org-chart"
-                      element={
-                        <ProtectedRoute roles={['admin', 'hr']}>
-                          <OrgChart />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="recruiting"
-                      element={
-                        <ProtectedRoute roles={['admin', 'hr']}>
-                          <Recruiting />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="onboarding"
-                      element={
-                        <ProtectedRoute roles={['admin', 'hr']}>
-                          <Onboarding />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="payroll"
-                      element={
-                        <ProtectedRoute roles={['admin', 'hr']}>
-                          <Payroll />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route path="leaves" element={<Leaves />} />
-                    <Route path="attendance" element={<Attendance />} />
-                    <Route path="performance" element={<Navigate to="/okr" replace />} />
-                    <Route path="okr" element={<OKR />} />
-                    <Route
-                      path="reports"
-                      element={
-                        <ProtectedRoute roles={['admin', 'hr']}>
-                          <Reports />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="settings"
-                      element={
-                        <ProtectedRoute roles={['admin']}>
-                          <Settings />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="documents"
-                      element={
-                        <ProtectedRoute roles={['admin', 'hr']}>
-                          <Documents />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="announcements"
-                      element={
-                        <ProtectedRoute roles={['admin', 'hr']}>
-                          <Announcements />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path="tasks"
+                      path="/"
                       element={
                         <ProtectedRoute>
-                          <Tasks />
+                          <Layout />
                         </ProtectedRoute>
                       }
-                    />
-                    <Route
-                      path="certificate-generator"
-                      element={
-                        <ProtectedRoute>
-                          <CertificateGenerator />
-                        </ProtectedRoute>
-                      }
-                    />
-                  </Route>
+                    >
+                      <Route index element={<Navigate to="/dashboard" replace />} />
+                      <Route path="dashboard" element={<Dashboard />} />
+                      <Route
+                        path="employees"
+                        element={
+                          <ProtectedRoute roles={['admin', 'hr']}>
+                            <Employees />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="org-chart"
+                        element={
+                          <ProtectedRoute roles={['admin', 'hr']}>
+                            <OrgChart />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="recruiting"
+                        element={
+                          <ProtectedRoute roles={['admin', 'hr']}>
+                            <Recruiting />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="onboarding"
+                        element={
+                          <ProtectedRoute roles={['admin', 'hr']}>
+                            <Onboarding />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="payroll"
+                        element={
+                          <ProtectedRoute roles={['admin', 'hr']}>
+                            <Payroll />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route path="leaves" element={<Leaves />} />
+                      <Route path="attendance" element={<Attendance />} />
+                      <Route path="performance" element={<Navigate to="/okr" replace />} />
+                      <Route path="okr" element={<OKR />} />
+                      <Route
+                        path="reports"
+                        element={
+                          <ProtectedRoute roles={['admin', 'hr']}>
+                            <Reports />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="settings"
+                        element={
+                          <ProtectedRoute roles={['admin']}>
+                            <Settings />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="documents"
+                        element={
+                          <ProtectedRoute roles={['admin', 'hr']}>
+                            <Documents />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="announcements"
+                        element={
+                          <ProtectedRoute roles={['admin', 'hr']}>
+                            <Announcements />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="tasks"
+                        element={
+                          <ProtectedRoute>
+                            <Tasks />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="certificate-generator"
+                        element={
+                          <ProtectedRoute>
+                            <CertificateGenerator />
+                          </ProtectedRoute>
+                        }
+                      />
+                    </Route>
 
-                  {/* Catch all */}
-                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                </Routes>
-              </ErrorBoundary>
-            </Suspense>
-          </Router>
-        </ToastProvider>
-      </NotificationProvider>
-    </AuthProvider>
+                    {/* Catch all */}
+                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                  </Routes>
+                </ErrorBoundary>
+              </Suspense>
+            </Router>
+          </ToastProvider>
+        </NotificationProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

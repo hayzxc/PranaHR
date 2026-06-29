@@ -1,8 +1,6 @@
 const request = require('supertest');
 const express = require('express');
-const mongoose = require('mongoose');
-const User = require('../../models/User');
-const Employee = require('../../models/Employee');
+const prisma = require('../../lib/prisma').default;
 
 let app;
 let adminToken;
@@ -155,10 +153,10 @@ describe('Employee Routes', () => {
 
     describe('GET /api/employees/:id', () => {
         it('should get employee by ID (admin)', async () => {
-            const employee = await Employee.findOne({ email: 'employee@test.com' });
+            const employee = await prisma.employee.findUnique({ where: { email: 'employee@test.com' } });
 
             const res = await request(app)
-                .get(`/api/employees/${employee._id}`)
+                .get(`/api/employees/${employee.id}`)
                 .set('Authorization', `Bearer ${adminToken}`);
 
             expect(res.status).toBe(200);
@@ -166,7 +164,7 @@ describe('Employee Routes', () => {
         });
 
         it('should return 404 for non-existent employee', async () => {
-            const fakeId = new mongoose.Types.ObjectId();
+            const fakeId = '00000000-0000-0000-0000-000000000000';
 
             const res = await request(app)
                 .get(`/api/employees/${fakeId}`)
@@ -186,10 +184,10 @@ describe('Employee Routes', () => {
 
     describe('PUT /api/employees/:id', () => {
         it('should update employee (admin)', async () => {
-            const employee = await Employee.findOne({ email: 'employee@test.com' });
+            const employee = await prisma.employee.findUnique({ where: { email: 'employee@test.com' } });
 
             const res = await request(app)
-                .put(`/api/employees/${employee._id}`)
+                .put(`/api/employees/${employee.id}`)
                 .set('Authorization', `Bearer ${adminToken}`)
                 .send({
                     position: 'Senior Staff',
@@ -202,7 +200,7 @@ describe('Employee Routes', () => {
         });
 
         it('should return 404 for non-existent employee', async () => {
-            const fakeId = new mongoose.Types.ObjectId();
+            const fakeId = '00000000-0000-0000-0000-000000000000';
 
             const res = await request(app)
                 .put(`/api/employees/${fakeId}`)
@@ -215,24 +213,24 @@ describe('Employee Routes', () => {
 
     describe('DELETE /api/employees/:id', () => {
         it('should terminate employee (admin only)', async () => {
-            const employee = await Employee.findOne({ email: 'employee@test.com' });
+            const employee = await prisma.employee.findUnique({ where: { email: 'employee@test.com' } });
 
             const res = await request(app)
-                .delete(`/api/employees/${employee._id}`)
+                .delete(`/api/employees/${employee.id}`)
                 .set('Authorization', `Bearer ${adminToken}`);
 
             expect(res.status).toBe(200);
 
             // Verify employee is terminated
-            const terminated = await Employee.findById(employee._id);
+            const terminated = await prisma.employee.findUnique({ where: { id: employee.id } });
             expect(terminated.status).toBe('terminated');
         });
 
         it('should reject non-admin from deleting', async () => {
-            const employee = await Employee.findOne({ email: 'employee@test.com' });
+            const employee = await prisma.employee.findUnique({ where: { email: 'employee@test.com' } });
 
             const res = await request(app)
-                .delete(`/api/employees/${employee._id}`)
+                .delete(`/api/employees/${employee.id}`)
                 .set('Authorization', `Bearer ${employeeToken}`);
 
             expect(res.status).toBe(403);

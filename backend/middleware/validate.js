@@ -31,9 +31,19 @@ const handleValidation = (req, res, next) => {
 // COMMON VALIDATORS
 // ============================================
 
+const checkUuidOrMongoId = value => {
+  if (!value) return true;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  const isMongo = /^[0-9a-fA-F]{24}$/.test(value);
+  if (!isUuid && !isMongo) {
+    throw new Error('Invalid ID format');
+  }
+  return true;
+};
+
 const isMongoId = (field, location = 'params') => {
   const validator = location === 'params' ? param(field) : body(field);
-  return validator.isMongoId().withMessage(`Invalid ${field} format`);
+  return validator.custom(checkUuidOrMongoId).withMessage(`Invalid ${field} format`);
 };
 
 const isEmail = (field = 'email') =>
@@ -54,7 +64,7 @@ const isPasswordOptional = (field = 'password', minLength = 6) =>
 
 const isString = (field, { min = 1, max = 500, required = true } = {}) => {
   let validator = body(field);
-  if (!required) { validator = validator.optional(); }
+  if (!required) { validator = validator.optional({ values: 'falsy' }); }
   return validator
     .trim()
     .isLength({ min, max })
@@ -251,7 +261,7 @@ const okrCreateValidation = [
   body('keyResults.*.targetValue').isNumeric().withMessage('Target value must be a number'),
   body('keyResults.*.unit').optional().trim().isLength({ max: 50 }).withMessage('Unit max 50 chars'),
   body('keyResults.*.weight').optional().isFloat({ min: 0.1, max: 10 }).withMessage('Weight must be 0.1-10'),
-  body('parentObjective').optional().isMongoId().withMessage('Invalid parent objective ID'),
+  body('parentObjective').optional().custom(checkUuidOrMongoId).withMessage('Invalid parent objective ID'),
   handleValidation,
 ];
 
@@ -274,7 +284,7 @@ const kpiCreateValidation = [
   isEnum('frequency', KPI_FREQUENCIES, { required: false }),
   isEnum('category', KPI_CATEGORIES, { required: false }),
   isEnum('department', DEPARTMENTS, { required: false }),
-  body('employeeId').optional().isMongoId().withMessage('Invalid employee ID'),
+  body('employeeId').optional().custom(checkUuidOrMongoId).withMessage('Invalid employee ID'),
   handleValidation,
 ];
 
@@ -350,8 +360,10 @@ const onboardingTaskValidation = [
 const settingsValidation = [
   isString('companyName', { min: 2, max: 200, required: false }),
   isString('companyEmail', { min: 5, max: 100, required: false }),
-  body('workingHours').optional().isObject().withMessage('Working hours must be an object'),
-  body('leavePolicy').optional().isObject().withMessage('Leave policy must be an object'),
+  body('workSchedule').optional({ values: 'null' }).isObject().withMessage('Work schedule must be an object'),
+  body('leavePolicy').optional({ values: 'null' }).isObject().withMessage('Leave policy must be an object'),
+  body('payrollSettings').optional({ values: 'null' }).isObject().withMessage('Payroll settings must be an object'),
+  body('notifications').optional({ values: 'null' }).isObject().withMessage('Notifications must be an object'),
   handleValidation,
 ];
 
@@ -367,9 +379,9 @@ const paginationValidation = [
     .withMessage('Page must be a positive integer'),
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 100 })
+    .isInt({ min: 1, max: 1000 })
     .toInt()
-    .withMessage('Limit must be between 1 and 100'),
+    .withMessage('Limit must be between 1 and 1000'),
   query('sort')
     .optional()
     .isIn(['asc', 'desc', '-1', '1'])

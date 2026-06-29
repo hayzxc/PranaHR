@@ -24,13 +24,17 @@ import {
     ChevronsLeft,
     ChevronsRight,
     Crosshair,
-    Network
+    Network,
+    Sun,
+    Moon
 } from 'lucide-react';
+import { useTheme } from '../context/ThemeContext';
 import { useState, useEffect, useRef } from 'react';
 
 const Layout = () => {
     const { user, employee, logout, canManageEmployees, isAdmin } = useAuth();
     const navigate = useNavigate();
+    const { theme, toggleTheme } = useTheme();
     const [sidebarOpen, setSidebarOpen] = useState(false);       // mobile toggle
     const [sidebarExpanded, setSidebarExpanded] = useState(false); // desktop hover/pin
     const [sidebarPinned, setSidebarPinned] = useState(false);    // user can pin it open
@@ -74,14 +78,20 @@ const Layout = () => {
     const navItems = [
         { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
         { to: '/tasks', icon: ClipboardList, label: 'Tasks' },
+        
+        { header: 'Management' },
         ...(canManageEmployees ? [{ to: '/employees', icon: Users, label: 'Employees' }] : []),
         ...(canManageEmployees ? [{ to: '/org-chart', icon: Network, label: 'Org Chart' }] : []),
         ...(canManageEmployees ? [{ to: '/recruiting', icon: UserPlus, label: 'Recruiting' }] : []),
         ...(canManageEmployees ? [{ to: '/onboarding', icon: ClipboardCheck, label: 'Onboarding' }] : []),
+        
+        { header: 'Operations' },
         ...(canManageEmployees ? [{ to: '/payroll', icon: DollarSign, label: 'Payroll' }] : []),
         ...(canManageEmployees ? [{ to: '/documents', icon: FileText, label: 'Documents' }] : []),
         { to: '/certificate-generator', icon: Award, label: 'Certificate' },
         ...(canManageEmployees ? [{ to: '/announcements', icon: Megaphone, label: 'Announcements' }] : []),
+        
+        { header: 'Time & Growth' },
         { to: '/leaves', icon: Calendar, label: 'Time Off' },
         { to: '/attendance', icon: Clock, label: 'Attendance' },
         { to: '/okr', icon: Crosshair, label: 'Performance & KPI' },
@@ -112,8 +122,8 @@ const Layout = () => {
                 role="navigation"
                 aria-label="Main navigation"
                 className={`
-                    fixed top-0 left-0 z-50 h-full
-                    bg-white border-r border-surface-100
+                    fixed top-0 left-0 z-50 h-full flex flex-col
+                    glass-premium border-r border-white/50
                     shadow-soft-lg
                     transition-all duration-300 ease-in-out
                     ${sidebarOpen ? 'w-72 translate-x-0' : '-translate-x-full'}
@@ -124,15 +134,15 @@ const Layout = () => {
                 onMouseLeave={() => !sidebarPinned && setSidebarExpanded(false)}
             >
                 {/* Sidebar Header */}
-                <div className={`h-20 flex items-center border-b border-surface-100 transition-all duration-300 ${isExpanded ? 'justify-between px-6' : 'justify-center px-2 lg:px-0'}`}>
+                <div className={`h-20 flex items-center border-b border-white/40 transition-all duration-300 ${isExpanded ? 'justify-between px-6' : 'justify-center px-2 lg:px-0'}`}>
                     <div className="flex items-center gap-3">
                         <div className="relative group cursor-pointer">
-                            <div className="absolute inset-0 bg-primary-400 blur-lg opacity-20 group-hover:opacity-40 transition-opacity rounded-xl"></div>
-                            <div className="relative w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-soft transform group-hover:scale-105 transition-all duration-300">
+                            <div className="absolute inset-0 bg-primary-400 blur-lg opacity-30 group-hover:opacity-60 transition-opacity rounded-xl animate-pulse"></div>
+                            <div className="relative w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-soft transform group-hover:scale-110 transition-all duration-300 animate-float">
                                 <img src="/logo.png" alt="Sobat HR Logo" className="w-6 h-6 object-contain" />
                             </div>
                         </div>
-                        <div className={`transition-all duration-300 overflow-hidden ${isExpanded ? 'opacity-100 w-auto' : 'lg:opacity-0 lg:w-0 lg:hidden opacity-100 w-auto'}`}>
+                        <div className={`transition-all duration-300 ease-in-out overflow-hidden ${isExpanded ? 'opacity-100 max-w-[200px] translate-x-0' : 'opacity-0 max-w-0 -translate-x-4 pointer-events-none'}`}>
                             <h1 className="text-xl font-bold text-surface-800 tracking-tight leading-none whitespace-nowrap">
                                 Prana <span className="text-primary-600">HR</span>
                             </h1>
@@ -162,42 +172,63 @@ const Layout = () => {
                 </div>
 
                 {/* Navigation */}
-                <nav aria-label="Sidebar menu" className={`space-y-1 overflow-y-auto max-h-[calc(100vh-220px)] transition-all duration-300 ${isExpanded ? 'p-4' : 'p-2 lg:p-2'}`}>
-                    <p className={`text-xs font-semibold text-surface-400 uppercase tracking-wider mb-3 transition-all duration-300 ${isExpanded ? 'px-4 opacity-100' : 'lg:text-center lg:px-0 opacity-0 lg:opacity-0 px-4'}`}>Menu</p>
-                    {navItems.map((item, index) => (
-                        <NavLink
-                            key={item.to}
-                            to={item.to}
-                            className={({ isActive }) => `
-                                sidebar-link group relative
-                                ${isActive ? 'active' : ''}
-                                ${animateNav ? 'animate-fade-in opacity-0' : ''}
-                                ${!isExpanded ? 'lg:justify-center' : ''}
-                            `}
-                            style={animateNav ? { animationDelay: `${index * 40}ms` } : {}}
-                            onClick={() => setSidebarOpen(false)}
-                            title={!isExpanded ? item.label : undefined}
-                        >
-                            <div className={`p-2 rounded-xl transition-all duration-200 
-                                ${({ isActive }) => isActive ? 'bg-white/20' : 'group-hover:bg-primary-100'}`}>
-                                <item.icon className="w-5 h-5 nav-icon" aria-hidden="true" />
-                            </div>
-                            <span className={`font-medium whitespace-nowrap transition-all duration-300 ${isExpanded ? 'opacity-100 w-auto' : 'lg:opacity-0 lg:w-0 lg:hidden opacity-100 w-auto'}`}>
-                                {item.label}
-                            </span>
-                        </NavLink>
-                    ))}
+                <nav aria-label="Sidebar menu" className={`flex-1 min-h-0 overflow-y-auto space-y-1 transition-all duration-300 ${isExpanded ? 'p-4' : 'p-2 lg:p-2'}`}>
+                    {navItems.map((item, index) => {
+                        if (item.header) {
+                            return (
+                                <p
+                                    key={`header-${index}`}
+                                    className={`text-[10px] font-bold text-surface-400 dark:text-surface-500 uppercase tracking-widest mt-6 mb-2 transition-all duration-300 ease-in-out ${
+                                        isExpanded ? 'px-4 opacity-100 translate-x-0' : 'opacity-0 -translate-x-4 pointer-events-none h-0 mt-0 mb-0 overflow-hidden'
+                                    }`}
+                                >
+                                    {item.header}
+                                </p>
+                            );
+                        }
+
+                        return (
+                            <NavLink
+                                key={item.to}
+                                to={item.to}
+                                className={({ isActive }) => `
+                                    sidebar-link group relative
+                                    ${isActive ? 'active' : ''}
+                                    ${animateNav ? 'animate-fade-in opacity-0' : ''}
+                                    ${!isExpanded ? 'lg:justify-center' : ''}
+                                `}
+                                style={animateNav ? { animationDelay: `${index * 40}ms` } : {}}
+                                onClick={() => setSidebarOpen(false)}
+                                title={!isExpanded ? item.label : undefined}
+                            >
+                                {({ isActive }) => (
+                                    <>
+                                        {isActive && (
+                                            <div className="absolute left-0 top-1/4 h-1/2 w-1 bg-primary-600 rounded-r-full" />
+                                        )}
+                                        <div className={`p-2 rounded-xl transition-all duration-200 
+                                            ${isActive ? 'bg-white/20' : 'group-hover:bg-primary-100'}`}>
+                                            <item.icon className="w-5 h-5 nav-icon transition-transform duration-300 group-hover:scale-110" aria-hidden="true" />
+                                        </div>
+                                        <span className={`font-medium whitespace-nowrap transition-all duration-300 ease-in-out ${isExpanded ? 'opacity-100 max-w-[200px] translate-x-0' : 'opacity-0 max-w-0 -translate-x-4 overflow-hidden pointer-events-none'}`}>
+                                            {item.label}
+                                        </span>
+                                    </>
+                                )}
+                            </NavLink>
+                        );
+                    })}
                 </nav>
 
                 {/* User info at bottom */}
-                <div className={`absolute bottom-0 left-0 right-0 border-t border-surface-100 bg-surface-50/50 transition-all duration-300 ${isExpanded ? 'p-4' : 'p-2 lg:p-2'}`}>
+                <div className={`mt-auto border-t border-surface-100 bg-surface-50/50 transition-all duration-300 ${isExpanded ? 'p-4' : 'p-2 lg:p-2'}`}>
                     <div className={`flex items-center gap-3 mb-3 p-2 rounded-xl hover:bg-white transition-colors cursor-pointer ${!isExpanded ? 'lg:justify-center' : ''}`}>
                         <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-md flex-shrink-0">
                             <span className="text-white font-bold">
                                 {(employee?.name || user?.email)?.[0]?.toUpperCase()}
                             </span>
                         </div>
-                        <div className={`flex-1 min-w-0 transition-all duration-300 ${isExpanded ? 'opacity-100' : 'lg:opacity-0 lg:w-0 lg:hidden opacity-100'}`}>
+                        <div className={`flex-1 min-w-0 transition-all duration-300 ease-in-out ${isExpanded ? 'opacity-100 max-w-[200px] translate-x-0' : 'opacity-0 max-w-0 -translate-x-4 overflow-hidden pointer-events-none'}`}>
                             <p className="font-semibold text-surface-800 truncate">
                                 {employee?.name || user?.email?.split('@')[0]}
                             </p>
@@ -209,10 +240,10 @@ const Layout = () => {
                     <button
                         onClick={handleLogout}
                         aria-label="Sign out"
-                        className={`w-full flex items-center gap-2 px-4 py-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 active:scale-95 group font-medium ${isExpanded ? 'justify-center' : 'lg:justify-center justify-center'}`}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 active:scale-95 group font-medium ${isExpanded ? 'justify-start' : 'justify-center'}`}
                     >
                         <LogOut className="w-4 h-4 group-hover:-translate-x-1 transition-transform" aria-hidden="true" />
-                        <span className={`transition-all duration-300 ${isExpanded ? 'opacity-100' : 'lg:opacity-0 lg:w-0 lg:hidden opacity-100'}`}>
+                        <span className={`transition-all duration-300 ease-in-out ${isExpanded ? 'opacity-100 max-w-[200px] translate-x-0' : 'opacity-0 max-w-0 -translate-x-4 overflow-hidden pointer-events-none'}`}>
                             Sign Out
                         </span>
                     </button>
@@ -222,7 +253,7 @@ const Layout = () => {
             {/* Main content */}
             <div className={`transition-all duration-300 ${isExpanded ? 'lg:ml-72' : 'lg:ml-20'}`}>
                 {/* Top bar */}
-                <header className="h-20 bg-white/80 backdrop-blur-xl border-b border-surface-100 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30">
+                <header className="h-20 bg-white/60 backdrop-blur-2xl border-b border-white/50 flex items-center justify-between px-4 lg:px-8 sticky top-0 z-30 shadow-sm shadow-surface-100/5">
                     <button
                         className="lg:hidden p-2.5 text-surface-600 hover:bg-surface-100 rounded-xl transition-all active:scale-90"
                         onClick={() => setSidebarOpen(true)}
@@ -238,6 +269,15 @@ const Layout = () => {
                     </div>
 
                     <div className="flex items-center gap-3">
+                        {/* Theme Toggle */}
+                        <button
+                            onClick={toggleTheme}
+                            className="p-2.5 text-surface-500 hover:text-surface-700 hover:bg-surface-100 dark:text-surface-400 dark:hover:text-surface-200 dark:hover:bg-surface-800 rounded-xl transition-all active:scale-90"
+                            aria-label="Toggle theme"
+                        >
+                            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                        </button>
+
                         {/* Notifications */}
                         <div className="relative" ref={notifRef}>
                             <button

@@ -1,7 +1,15 @@
 const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose');
 const { auth, authorize, optionalAuth, authorizeOwnerOrAdmin } = require('../../middleware/auth');
-const User = require('../../models/User');
+const prisma = require('../../lib/prisma').default;
+
+jest.mock('../../lib/prisma', () => ({
+    __esModule: true,
+    default: {
+        user: {
+            findUnique: jest.fn(),
+        },
+    },
+}));
 
 // Setup env for JWT
 process.env.JWT_SECRET = 'test-jwt-secret-key-for-testing';
@@ -17,20 +25,22 @@ describe('Auth Middleware', () => {
     let testUser;
     let validToken;
 
-    beforeEach(async () => {
-        // Create a real user in the in-memory DB
-        testUser = await User.create({
+    beforeEach(() => {
+        jest.clearAllMocks();
+        testUser = {
+            id: 'test-user-id-123',
             email: 'auth-test@test.com',
-            password: 'password123',
             role: 'admin',
             isActive: true,
-        });
+        };
 
         validToken = jwt.sign(
-            { id: testUser._id, email: testUser.email, role: testUser.role },
+            { id: testUser.id, email: testUser.email, role: testUser.role },
             process.env.JWT_SECRET,
             { expiresIn: '7d' },
         );
+
+        prisma.user.findUnique.mockResolvedValue(testUser);
     });
 
     describe('auth()', () => {
@@ -86,7 +96,7 @@ describe('Auth Middleware', () => {
 
         it('should call next with error for expired token', async () => {
             const expiredToken = jwt.sign(
-                { id: testUser._id },
+                { id: testUser.id },
                 process.env.JWT_SECRET,
                 { expiresIn: '0s' },
             );
@@ -104,8 +114,8 @@ describe('Auth Middleware', () => {
         });
 
         it('should call next with error when user is not found', async () => {
-            const fakeId = new mongoose.Types.ObjectId();
-            const token = jwt.sign({ id: fakeId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+            prisma.user.findUnique.mockResolvedValueOnce(null);
+            const token = jwt.sign({ id: 'fake-id' }, process.env.JWT_SECRET, { expiresIn: '7d' });
             const req = mockReq();
             req.header.mockReturnValue(`Bearer ${token}`);
             const next = jest.fn();
@@ -118,7 +128,7 @@ describe('Auth Middleware', () => {
         });
 
         it('should call next with error when user is deactivated', async () => {
-            await User.findByIdAndUpdate(testUser._id, { isActive: false });
+            prisma.user.findUnique.mockResolvedValueOnce({ ...testUser, isActive: false });
             const req = mockReq();
             req.header.mockReturnValue(`Bearer ${validToken}`);
             const next = jest.fn();
@@ -204,8 +214,8 @@ describe('Auth Middleware', () => {
     describe('authorizeOwnerOrAdmin()', () => {
         it('should allow admin access', () => {
             const req = {
-                user: { role: 'admin', _id: new mongoose.Types.ObjectId() },
-                resource: { userId: new mongoose.Types.ObjectId().toString() },
+                user: { role: 'admin', id: 'admin-id' },
+                resource: { userId: 'some-other-id' },
             };
             const next = jest.fn();
 
@@ -216,8 +226,8 @@ describe('Auth Middleware', () => {
 
         it('should allow HR access', () => {
             const req = {
-                user: { role: 'hr', _id: new mongoose.Types.ObjectId() },
-                resource: { userId: new mongoose.Types.ObjectId().toString() },
+                user: { role: 'hr', id: 'hr-id' },
+                resource: { userId: 'some-other-id' },
             };
             const next = jest.fn();
 
@@ -227,10 +237,10 @@ describe('Auth Middleware', () => {
         });
 
         it('should allow resource owner access', () => {
-            const userId = new mongoose.Types.ObjectId();
+            const userId = 'owner-id';
             const req = {
-                user: { role: 'employee', _id: userId },
-                resource: { userId: userId.toString() },
+                user: { role: 'employee', id: userId },
+                resource: { userId: userId },
             };
             const next = jest.fn();
 
@@ -241,8 +251,8 @@ describe('Auth Middleware', () => {
 
         it('should deny non-owner employee', () => {
             const req = {
-                user: { role: 'employee', _id: new mongoose.Types.ObjectId() },
-                resource: { userId: new mongoose.Types.ObjectId().toString() },
+                user: { role: 'employee', id: 'employee-id' },
+                resource: { userId: 'owner-id' },
             };
             const next = jest.fn();
 
