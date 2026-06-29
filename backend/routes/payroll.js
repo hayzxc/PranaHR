@@ -14,33 +14,34 @@ const { success, created, paginated } = require('../utils/response');
 const { NotFoundError, BadRequestError, ConflictError, ForbiddenError } = require('../utils/errors');
 const { generatePayslipPDF } = require('../utils/pdfGenerator');
 
-/**
- * PONYTAIL FIX: Safe Payroll Calculator
- * Replaces the buggy Object.values(earnings).reduce() that crashed when earnings had invalid types
- */
+const parseFloatSafe = (val) => {
+  const parsed = parseFloat(val);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
 const calculatePayrollTotals = (basicSalary, earningsObj = {}, deductionsObj = {}) => {
   const e = {
-    earnOvertime: parseFloat(earningsObj.overtime || 0),
-    earnBonus: parseFloat(earningsObj.bonus || 0),
-    earnAllowances: parseFloat(earningsObj.allowance || earningsObj.allowances || 0),
-    earnTransport: parseFloat(earningsObj.transport || 0),
-    earnMeal: parseFloat(earningsObj.meal || 0),
-    earnOther: parseFloat(earningsObj.other || 0),
+    earnOvertime: parseFloatSafe(earningsObj.overtime),
+    earnBonus: parseFloatSafe(earningsObj.bonus),
+    earnAllowances: parseFloatSafe(earningsObj.allowance || earningsObj.allowances),
+    earnTransport: parseFloatSafe(earningsObj.transport),
+    earnMeal: parseFloatSafe(earningsObj.meal),
+    earnOther: parseFloatSafe(earningsObj.other),
   };
 
   const d = {
-    dedTax: parseFloat(deductionsObj.tax || 0),
-    dedBpjs: parseFloat(deductionsObj.bpjs || 0),
-    dedPension: parseFloat(deductionsObj.pension || 0),
-    dedLoan: parseFloat(deductionsObj.loan || 0),
-    dedAbsence: parseFloat(deductionsObj.absence || 0),
-    dedOther: parseFloat(deductionsObj.other || 0),
+    dedTax: parseFloatSafe(deductionsObj.tax),
+    dedBpjs: parseFloatSafe(deductionsObj.bpjs),
+    dedPension: parseFloatSafe(deductionsObj.pension),
+    dedLoan: parseFloatSafe(deductionsObj.loan),
+    dedAbsence: parseFloatSafe(deductionsObj.absence),
+    dedOther: parseFloatSafe(deductionsObj.other),
   };
 
-  const totalEarnings = Object.values(e).reduce((sum, val) => sum + (isNaN(val) ? 0 : val), 0);
-  const totalDeductions = Object.values(d).reduce((sum, val) => sum + (isNaN(val) ? 0 : val), 0);
+  const totalEarnings = Object.values(e).reduce((sum, val) => sum + val, 0);
+  const totalDeductions = Object.values(d).reduce((sum, val) => sum + val, 0);
   
-  const grossPay = parseFloat(basicSalary || 0) + totalEarnings;
+  const grossPay = parseFloatSafe(basicSalary) + totalEarnings;
   const netPay = grossPay - totalDeductions;
 
   return { ...e, ...d, grossPay, totalDeductions, netPay };

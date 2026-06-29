@@ -166,7 +166,7 @@ router.post('/', auth, authorize('admin', 'hr'), catchAsync(async (req, res) => 
   const existing = await prisma.onboarding.findFirst({ where: { employeeId } });
   if (existing) throw new ConflictError('Onboarding already exists for this employee');
 
-  const manager = await prisma.employee.findUnique({ where: { id: mentorId || employeeId } });
+  const manager = (mentorId ? await prisma.employee.findUnique({ where: { id: mentorId } }) : null) || employee;
 
   const tasksToCreate = customTasks || getDefaultTasks();
   const start = new Date(startDate);
@@ -177,7 +177,7 @@ router.post('/', auth, authorize('admin', 'hr'), catchAsync(async (req, res) => 
     description: task.description || '',
     category: task.category || 'general',
     assigneeId: task.assigneeTo || task.assigneeId || 'employee',
-    dueDate: new Date(start.getTime() + (task.dueInDays || 7) * 24 * 60 * 60 * 1000).toISOString(),
+    dueDate: new Date(start.getTime() + (task.dueInDays !== undefined ? task.dueInDays : 7) * 24 * 60 * 60 * 1000).toISOString(),
     completed: false,
     status: 'pending',
     required: task.required !== false,
